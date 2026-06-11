@@ -1,195 +1,165 @@
-# PROJECT INSTRUCTIONS
+# Project Instructions
 
 ## Documentation Structure
 
 ```
 docs/
-  master-build-plan.md        # Task tracker: phases, IDs, status, deps
-  prd.md                      # Product requirements
-  tech-stack.md               # Technology inventory
-  database-schema.txt         # Schema source of truth
-  test-strategy.md            # Test approach + current gaps
+  master-build-plan.md            # Task tracker: phases, IDs, status, deps
+  prd.md                          # Product requirements
+  tech-stack.md                    # Technology inventory
+  database-schema.txt             # Schema source of truth
+  test-strategy.md                 # Test approach + gaps
   decisions/
-    log.md                    # Append-only decision log
-  tasks/                      # Per-task implementation notes
-  architecture/               # Deep-dive architecture docs
+    log.md                        # Append-only decision log
+  tasks/                          # Per-task implementation notes
+  architecture/                   # Deep-dive architecture docs
+  brainstorm/{phase_task}/
+    prd.md                        # Feature/slice PRD
+    HANDOFF.md                    # Shared mission + issue order
+    IMPLEMENTATION_MAP.md         # Required for multi-issue PRDs
+    issues/{TASK-ID}.md           # Sequential implementation issues
 ```
 
-## Mandatory After Completing Work
+## Required Task Hygiene
 
-1. Update task status in `docs/master-build-plan.md` (mark DONE with date).
-2. Append an entry to `docs/decisions/log.md` if you made an architectural or design decision.
-3. For non-trivial tasks, create implementation notes in `docs/tasks/{task-id}.md`.
+- Every task has an ID (for example, `P8-03`, `IDM-28-05`). Use it in task notes, docs, and commit messages.
+- When starting a tracked task, mark it `IN PROGRESS` in `docs/master-build-plan.md`.
+- When done, mark it `DONE (YYYY-MM-DD)` and summarize the result.
+- For non-trivial work, create or update `docs/tasks/{task-id}.md`.
+- Update `CHANGELOG.md` for user-facing behavior changes.
+- Add a `docs/decisions/log.md` entry for architectural or durable design decisions.
+- For multi-issue PRD work, update the PRD folder's `IMPLEMENTATION_MAP.md` and `HANDOFF.md` before handing off or marking done.
 
-## Task Tracking
+## Sequential PRD / Issue Workflow
 
-- Each task has a unique ID (e.g., P8-03). Use these IDs in commit messages and doc references.
-- When starting a task, mark it IN PROGRESS in `docs/master-build-plan.md`.
-- When done, mark it DONE with the completion date.
+Use this workflow whenever a PRD is split into sequential issues for independent agents.
+
+### 1. PRD Defines Product Intent
+
+The PRD should describe the user problem, outcomes, constraints, and non-goals. Do not bury implementation contracts only in the PRD.
+
+### 2. Implementation Map Defines Shared Technical Truth
+
+Create `docs/brainstorm/{phase_task}/IMPLEMENTATION_MAP.md` for any multi-issue PRD. It is the source of truth every issue must read and update.
+
+It must include:
+- End-to-end flow and state model.
+- Canonical contracts and invariants.
+- Key modules and ownership boundaries.
+- Existing decisions and architecture docs to respect.
+- Cross-layer interfaces: API shapes, task state, stores, cache invalidation, persistence semantics.
+- Explicit non-goals and forbidden shortcuts.
+
+### 3. Issues Are Sequential Batons
+
+Each issue must include:
+- **Context packet:** PRD, `HANDOFF.md`, `IMPLEMENTATION_MAP.md`, relevant decisions/docs.
+- **Previous slice provides:** what the current issue can rely on.
+- **This slice changes:** the narrow behavior to implement.
+- **This slice must not rework:** decisions and interfaces to preserve.
+- **Next slice can assume:** what must be true after completion.
+- **Acceptance criteria:** behavior, tests, docs, and handoff/map updates.
+
+Prefer thin vertical slices over broad horizontal ones. Each issue should be independently testable and should strengthen the shared contract.
+
+### 4. Completion Note Is Mandatory
+
+For each completed issue, add `docs/tasks/{task-id}.md` with:
+- Behavior added or changed.
+- Interfaces changed.
+- Tests added and what they prove.
+- Follow-on assumptions for the next issue.
+- Decisions intentionally left unchanged.
+
+### 5. Handoff Stays Small
+
+`HANDOFF.md` should summarize mission, issue order, recovery/operator notes, and links. Do not duplicate the PRD or implementation map. It should tell the next agent where the baton is, not restate every detail.
 
 ## Agent Skills
 
-This repo has Cursor skills under `.cursor/skills/` for recurring engineering workflows.
-
-### Installed Core Workflow Skills
-
-- `setup-matt-pocock-skills`: maintains this repo's skill configuration files.
-- `grill-me`: interviews the user about a plan until the design tree is resolved.
-- `grill-with-docs`: like `grill-me`, but also maintains `CONTEXT.md` and decision docs.
-- `diagnose`: builds a feedback loop before debugging bugs or performance regressions.
-- `tdd`: uses red-green-refactor with behavior tests and vertical slices.
-- `triage`: classifies and prepares GitHub issues using the repo's triage labels.
-- `to-issues`: converts plans or PRDs into independently implementable GitHub issues.
-- `to-prd`: synthesizes the current context into a PRD and publishes it as a GitHub issue.
-- `zoom-out`: maps unfamiliar code at a higher level before detailed work.
-
-### Skill Configuration
-
-- Issue tracker: GitHub Issues for `tabesink/Dashboard` via `gh`. See `docs/agents/issue-tracker.md`.
-- Triage labels: default labels `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
-- Domain docs: single-context layout with root `CONTEXT.md` and decisions in `docs/decisions/log.md`. See `docs/agents/domain.md`.
-
-When a skill asks for issue tracker, label, or domain-doc context, read the corresponding `docs/agents/*.md` file before acting.
+- Use `.cursor/skills/` for recurring workflows.
+- Relevant defaults: `tdd`, `diagnose`, `zoom-out`, `to-prd`, `to-issues`, `triage`, `grill-me`, `grill-with-docs`.
+- Issue tracker: GitHub Issues for `tabesink/Dashboard` via `gh`; see `docs/agents/issue-tracker.md`.
+- Labels: see `docs/agents/triage-labels.md`.
+- Domain docs: see `docs/agents/domain.md`.
+- If a skill asks for issue tracker, label, or domain-doc context, read the referenced `docs/agents/*.md` file first.
 
 ## GitNexus Code Intelligence
 
-This repo is indexed in **GitNexus** (MCP server: `user-gitnexus`). Coding agents MUST use it when exploring unfamiliar code, tracing behavior, editing symbols that may have callers, or planning multi-file changes — do not rely on blind grep/file walks alone.
-
-- **Indexed repo name:** `analysis-dashboard` (pass `repo: "analysis-dashboard"` on all GitNexus tool calls).
-- **Start here:** read resource `gitnexus://repo/analysis-dashboard/context` for overview and index freshness. If stale, re-index from the git root: `npx gitnexus analyze`.
-- **Before editing a symbol:** `context` (refs and processes) and `impact` (blast radius at depth 1–3).
-- **Before unfamiliar flows:** `query` (execution flows by concept) or resource `gitnexus://repo/analysis-dashboard/process/{processName}`.
-- **After local edits:** `detect_changes` to see what your diff may break.
-- **Coordinated renames / extractions:** `rename` (prefer over manual find-replace across files).
-
-Task-to-skill mapping (read the skill file before deep GitNexus work):
-
-| Task | Skill |
-|------|-------|
-| Architecture / "How does X work?" | `gitnexus-exploring` |
-| Blast radius / "What breaks if I change X?" | `gitnexus-impact-analysis` |
-| Bug tracing / "Why is X failing?" | `gitnexus-debugging` |
-| Rename / extract / split / refactor | `gitnexus-refactoring` |
-| Tools, resources, graph schema | `gitnexus-guide` |
-| Index, status, clean, wiki CLI | `gitnexus-cli` |
+Use GitNexus when exploring unfamiliar flows, tracing behavior, editing symbols with callers, or planning multi-file changes. Follow the managed GitNexus block at the bottom of this file for the current indexed repo and required tool sequence.
 
 ## Database Changes
 
-ALWAYS refer to `docs/database-schema.txt` before making any database changes. The schema file is the source of truth. ALWAYS update `docs/database-schema.txt` after making any schema changes.
-
-Source files: `server/schema.yaml` (dim tables, filter config), `server/storage/database.py` (_init_schema for non-dim tables).
-
-Runtime, portability export/import, and DuckDB connection model: `docs/notes/database.md`.
+- Read `docs/database-schema.txt` before any database change; it is the schema source of truth.
+- Update `docs/database-schema.txt` after schema changes.
+- Source files: `server/schema.yaml` for dim tables/filter config; `server/storage/database.py` for non-dim tables.
+- Runtime, portability export/import, and DuckDB connection notes: `docs/notes/database.md`.
 
 ## Multi-User Awareness
 
-When modifying write paths (upload, delete, metadata update, custom fields):
-- Verify cache invalidation covers the change (check `server/utils/cache.py` usage)
-- Verify ownership checks are enforced (owner or admin)
-- Reference `docs/architecture/database-multi-user.md` for multi-user constraints
-- Reference Phase 8 in `docs/master-build-plan.md` for the hardening roadmap
+For write paths (upload, delete, metadata update, custom fields):
+- Enforce owner/admin checks.
+- Verify cache invalidation (`server/utils/cache.py`).
+- Reference `docs/architecture/database-multi-user.md`.
+- Reference Phase 8 in `docs/master-build-plan.md`.
 
 ## Security Considerations (Production)
 
-When writing or reviewing code, enforce these security practices:
+Enforce these when writing or reviewing code:
 
-### Authentication & Secrets
+### Auth, Secrets, And Sessions
 
-- NEVER hardcode secrets, API keys, or passwords. Use environment variables or `settings.yaml` with env overrides.
+- Never hardcode secrets, API keys, or passwords.
 - JWT secret must be a strong random value (>=256-bit). Reject startup if `jwt_secret` is the default/placeholder.
-- Set `auth_cookie_secure: true` and `auth_cookie_httponly: true` in production. Use `SameSite=Lax` or `Strict`.
-- Token expiry should be short-lived (<=24h). Implement refresh tokens for long sessions rather than extending expiry.
-- Hash passwords with bcrypt (cost factor >=12). Never log, return, or store plaintext passwords.
+- Production cookies: `Secure`, `HttpOnly`, `SameSite=Lax` or `Strict`.
+- Token expiry should be <=24h unless refresh tokens exist.
+- Hash passwords with bcrypt cost >=12. Never log, return, or store plaintext passwords.
 
-### Input Validation & Injection
+### Input And API Boundaries
 
-- Validate ALL user inputs at the boundary (Pydantic models on backend, Zod schemas on frontend).
-- Use parameterized queries for DuckDB -- never interpolate user input into SQL strings.
-- Sanitize uploaded filenames: strip path traversal (`../`), null bytes, and special characters before any filesystem operation.
-- Enforce file type and size limits at both the reverse proxy and application layer.
-- Reject uploads with unexpected MIME types; do not rely solely on file extension.
-
-### API Security
-
-- CORS: restrict `allow_origins` to explicit domains in production. Never use `["*"]` outside local dev.
-- Rate limiting must be active on all endpoints. Use stricter limits for auth (`/login`, `/register`) and upload paths.
-- Return generic error messages to clients (e.g., "Invalid credentials"). Log detailed errors server-side only.
-- Ensure all admin endpoints are guarded by `require_admin` dependency. Audit new routes for missing guards.
-- Use HTTPS exclusively in production. Set `Strict-Transport-Security` header via reverse proxy.
+- Validate inputs at boundaries: Pydantic backend, Zod frontend where applicable.
+- Use parameterized DuckDB queries; never interpolate user input into SQL.
+- Sanitize uploaded filenames and reject unexpected MIME types.
+- Apply auth guards to new routes (`get_current_user` or `require_admin`).
+- Restrict CORS in production; never use `["*"]` outside local dev.
+- Return generic client errors; log details server-side only.
 
 ### Data Protection
 
-- Ownership checks: every write/update/delete must verify `user_id` matches the resource owner (or caller is admin).
-- Soft-delete before hard-delete. Only admins can purge.
-- Database file (`dashboard.db`) should have restrictive filesystem permissions (600). Backup files likewise.
-- Export/import endpoints are admin-only. Portable format is a **Parquet ZIP** (not a raw `.db` download); uploads are streamed to disk. Validate schema compatibility before import; staged uploads can be cancelled via API if the user closes the import dialog.
-- Never expose internal IDs, stack traces, or database errors in API responses.
+- Every write/update/delete verifies owner or admin.
+- Soft-delete before hard-delete; only admins purge.
+- Database and backups should use restrictive permissions.
+- Export/import is admin-only and uses Parquet ZIP, not raw `.db`.
+- Never expose stack traces or raw database errors to clients.
 
 ### Frontend Security
 
-- Store JWT in httpOnly cookies, not localStorage or sessionStorage.
-- Protect against XSS: avoid `dangerouslySetInnerHTML`; sanitize any user-generated content before rendering.
-- Protect against CSRF: use `SameSite` cookie attribute and consider CSRF tokens for state-changing requests.
-- Validate redirect URLs to prevent open redirect vulnerabilities (only allow relative paths or whitelisted domains).
-- Do not leak sensitive data in client-side state (Zustand stores, React Query cache) that could be inspected via dev tools.
+- Store JWT in HttpOnly cookies, not local/session storage.
+- Avoid `dangerouslySetInnerHTML`; sanitize user content.
+- Validate redirect URLs.
+- Do not leak sensitive data into Zustand or React Query caches.
 
 ### Infrastructure & Deployment
 
-- Run containers as non-root users. Drop unnecessary Linux capabilities.
-- Pin dependency versions in `pyproject.toml` and `package.json`. Audit dependencies for known CVEs periodically.
-- Enable structured logging for audit trails (who did what, when). Never log secrets or full request bodies containing passwords.
-- Set resource limits (memory, CPU) on Docker containers to prevent DoS via resource exhaustion.
-- Disable debug mode, verbose error pages, and development middleware in production builds.
+- Run containers as non-root; drop unnecessary capabilities.
+- Pin dependencies and audit for CVEs.
+- Use structured audit logging without secrets or password-bearing request bodies.
+- Set CPU/memory limits.
+- Disable debug/verbose error pages in production.
 
-## Versioning Best Practices
+## Versioning And Releases
 
-Follow these practices for all releases and version management:
-
-### Semantic Versioning
-
-- Use [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`):
-  - **MAJOR** — breaking changes or incompatible API modifications.
-  - **MINOR** — new features added in a backward-compatible manner.
-  - **PATCH** — backward-compatible bug fixes.
-- Pre-release versions use hyphenated suffixes (e.g., `1.2.0-beta.1`).
-- Never reuse a version number once published.
-
-### Changelog
-
-- Document every user-facing change in `CHANGELOG.md` at the project root.
-- Follow [Keep a Changelog](https://keepachangelog.com/) format with sections: `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
-- Write entries from the user's perspective, not implementation details.
-- Keep an `[Unreleased]` section at the top for in-progress work; move entries under the version heading at release time.
-
-### Git Tags & Branching
-
-- Tag every release in Git with the version prefixed by `v` (e.g., `v1.3.0`).
-- Tags must point to the exact commit that was tested and approved.
-- Use annotated tags (`git tag -a`) with a short release summary.
-- Never delete or move a published tag.
-
-### Pre-Release Testing
-
-- All automated tests (unit, integration, E2E) must pass before a version is tagged.
-- Run the full test suite against the release candidate build, not just changed code.
-- Perform manual smoke tests for critical user flows before publishing.
-- Verify database migration compatibility if schema changes are included.
-
-### Build Numbers
-
-- Use build numbers (e.g., `1.3.0+build.42`) to differentiate internal/CI builds from public releases.
-- Build metadata (after `+`) does not affect version precedence per SemVer.
-- Expose the build number in the application UI or health endpoint for easy identification during QA and debugging.
-
-### Version Source of Truth
-
-- Maintain the version string in a single canonical location (e.g., `package.json` for the client, `pyproject.toml` for the server).
-- All other references (Docker labels, API responses, UI footers) must derive from this source — never hardcode duplicates.
-- CI/CD pipelines should read the version from the canonical source and inject it into build artifacts automatically.
+- Use SemVer (`MAJOR.MINOR.PATCH`); never reuse a published version.
+- Keep the version in one canonical location; derive all UI/API/build references from it.
+- Document every user-facing change in `CHANGELOG.md` under `[Unreleased]`.
+- Use Keep a Changelog sections: `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
+- Tag releases as annotated `vX.Y.Z` tags pointing to the tested commit.
+- Run full automated tests and manual smoke tests before tagging.
+- Verify migration compatibility for schema changes.
+- Use build metadata (`+build.N`) for internal/CI builds when needed.
 
 ### Checklist for New Endpoints
 
-Before merging any new API route, verify:
 1. Auth guard applied (`get_current_user` or `require_admin`)
 2. Input validated via Pydantic model
 3. Ownership or role check on the target resource
@@ -199,55 +169,56 @@ Before merging any new API route, verify:
 
 ## When Making Code Changes
 
-Before editing code you have not already traced in this session, use GitNexus (see **GitNexus Code Intelligence** above): `context` + `impact` on symbols you will change; `query` or process resources for unfamiliar flows; `detect_changes` before finishing.
+- Trace before editing. Use GitNexus for unfamiliar flows and symbol impact.
+- State assumptions. Ask when requirements are ambiguous.
+- Prefer the smallest code that solves the verified behavior.
+- Keep changes surgical; do not refactor unrelated code.
+- Match existing style.
+- Remove only dead code your change creates.
+- Turn requests into verifiable goals and tests.
+- Prefer TDD for behavior changes: one failing behavior test, minimal implementation, repeat.
+- Before finishing, run focused tests/lints and GitNexus `detect_changes()` when code symbols changed.
 
-1. **Think Before Coding**
-Don't assume. Don't hide confusion. Surface tradeoffs.
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
 
-State assumptions explicitly -- if uncertain, ask rather than guess.
-Present multiple interpretations -- don't pick silently when ambiguity exists.
-Push back when warranted -- if a simpler approach exists, say so.
-Stop when confused -- name what's unclear and ask for clarification.
+This project is indexed by GitNexus as **analysis-dashboard-v2** (11413 symbols, 21768 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
-2. **Simplicity First**
-Minimum code that solves the problem. Nothing speculative.
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
-No features beyond what was asked.
-No abstractions for single-use code.
-No "flexibility" or "configurability" that wasn't requested.
-No error handling for impossible scenarios.
-If 200 lines could be 50, rewrite it.
-The test: Would a senior engineer say this is overcomplicated? If yes, simplify.
+## Always Do
 
-3. **Surgical Changes**
-Touch only what you must. Clean up only your own mess.
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
 
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting
-- Don't refactor things that aren't broken
-- Match existing style, even if you'd do it differently
-- If you notice unrelated dead code, mention it -- don't delete it
+## Never Do
 
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused
-- Don't remove pre-existing dead code unless asked
+- NEVER edit a function, class, or method without first running `impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit changes without running `detect_changes()` to check affected scope.
 
-The test: Every changed line should trace directly to the user's request.
+## Resources
 
-4. **Goal-Driven Execution**
-Define success criteria. Loop until verified.
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/analysis-dashboard-v2/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/analysis-dashboard-v2/clusters` | All functional areas |
+| `gitnexus://repo/analysis-dashboard-v2/processes` | All execution flows |
+| `gitnexus://repo/analysis-dashboard-v2/process/{name}` | Step-by-step execution trace |
 
-Transform imperative tasks into verifiable goals:
+## CLI
 
-| Instead of... | Transform to... |
-|--------------|-----------------|
-| "Add validation" | "Write tests for invalid inputs, then make them pass" |
-| "Fix the bug" | "Write a test that reproduces it, then make it pass" |
-| "Refactor X" | "Ensure tests pass before and after" |
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
-For multi-step tasks, state a brief plan:
-1. [Step] -> verify: [check]
-2. [Step] -> verify: [check]
-3. [Step] -> verify: [check]
-
-Strong success criteria let the LLM loop independently. Weak criteria ("make it work") require constant clarification.
+<!-- gitnexus:end -->

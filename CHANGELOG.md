@@ -1,16 +1,55 @@
-# Changelog
-
-
 ## [Unreleased]
 
 ### Added
+- Shared per-event channel resolver and header provider for derived-data readers: plot mappings resolve lookup channel names from each event's stored preview headers (with ingestion artifact `#TITLES` fallback) instead of duplicating ingestion-only header parsing (IDM-28-01).
+
+### Changed
+- Inspect Damage backfill and channel-reprocess follow-up now repair mixed damage populations (some events `current`, others `error`/missing) by starting a full scheduled recalculation when prerequisites are current; stale-only scopes remain inspectable without automatic recalc (IDM-28-05).
+- Assign Channels save and channel-map YAML upload now persist index-based lookup names (`col_N`) in the version-wide channel map instead of freezing the first retained artifact's channel titles across the program/version (IDM-28-02).
+- Schedule-driven damage calculation now resolves plot axis channel names from each event's own header metadata before reading `measurements_raw`, so mixed RSP export naming conventions in one program/version calculate correctly under a single index-based channel map (IDM-28-03).
+- Channel reprocess now resolves plot axis channel names per event when regenerating cross-plot LTTB data from canonical raw load histories, matching upload-time column-index semantics and keeping plots aligned with damage inputs under mixed export naming conventions (IDM-28-04).
+
+### Fixed
+- Assign Channels reprocess now preserves canonical raw load histories and regenerates only cross-plot data, so changing channel mappings no longer rewrites the full-resolution source data used by damage calculation (UP-24-07).
+- Channel reprocess progress modals opened from Edit Metadata are clickable again: shell operation modals use `pointer-events-auto` above the editor's Radix modal layer, so **Close and continue in background** and summary **Close** work as intended; the channel-map upload picker also dismisses immediately when a file is selected so progress is shown only in the derived-data modal.
+
+### Changed
+- When channel reprocess continues in the background with the progress modal dismissed and Edit Metadata closed, the Database page shows a compact banner with program/version scope, live progress message, and **Reopen progress** to restore the shell-mounted modal (AC-25-03).
+- Assign Channels save and channel-map YAML upload no longer show a fleeting loading toast; the shell-mounted derived-data progress modal is the sole in-flight feedback after the start API returns a task id. Validation/API errors and reset/restore success toasts are unchanged (AC-25-02).
+- Channel reprocess and schedule damage progress modals now mount once on the Database page shell (alongside upload/delete operation modals) instead of inside Edit Metadata, use a shared `z-[70]` layer above the editor, and keep scoped store-driven open/dismiss/summary behavior unchanged (AC-25-01).
+- Folder import progress now shows per-file RSP conversion and validation messages with a moving progress bar instead of staying at 10% during long batches.
+
+### Added
+- Post-upload precompute idempotency hardening closes Phase 27: end-to-end tests cover repeated trigger idempotency, channel-before-schedule and Inspect Damage repair workflow permutations, and unscheduled-event exclusion; rollout boundaries are documented in `docs/architecture/derived-data-upload-pipeline.md` (PPU-27-06).
+- Damage calculation completion now refreshes Inspect Damage and Edit Metadata schedule-context queries centrally; automatic precompute blocked states and automatic failures use concise toast-only feedback while manual flows keep the existing derived-data modal behavior (PPU-27-05).
+- Inspect Damage now auto-backfills completely missing persisted damage for write users when prerequisites are ready: the page reuses an active `damage_calculation` task or starts one through the precompute orchestrator, shows progress in the existing derived-data modal, and uses toast-only feedback when prerequisites are blocked; read-only users never start mutation work (PPU-27-04).
+- Schedule-only edits to repeats, weight, or multiplier now rescale persisted scheduled damage synchronously when base damage is current for every scheduled event/channel row, using `base_damage * repeats * weight * multiplier` without starting py-fatigue; missing, stale, or error base damage and event-matching changes still fall back to full `damage_calculation` (PPU-27-03).
+- Schedule upload/replacement and schedule-row save now route through the post-upload precompute orchestrator after persisting schedule data: prerequisites current → start/reuse `damage_calculation`; missing/stale channel prerequisites → blocked decision without a doomed task; invalid schedule rows still fail whole-task validation (PPU-27-02).
+- Channel reprocess completion now auto-starts or reuses a `damage_calculation` task when an active durability schedule exists and damage prerequisites are current; missing prerequisites return a blocked decision without creating a doomed task (PPU-27-01).
+- Post-upload precompute orchestrator (`server/services/post_upload_precompute.py`) exposes deterministic decisions: `no_op`, `blocked`, `start_damage_calculation`, `reuse_active_task`, and `rescale_scheduled_damage`.
+- Derived-data upload pipeline hardening closes cross-flow gaps: active-task reuse returns the stored task kind, folder uploads stay independent of derived tasks, end-to-end schedule damage and stale-marking behavior is regression-tested, and rollout documentation is published in `docs/architecture/derived-data-upload-pipeline.md` (UP-24-06).
+- Inspect Damage now reads persisted `event_channel_damage` rows instead of computing damage on read; stale values stay visible with page-level warnings and cell/column stale badges, missing results show a Calculate Damage empty state, and write users can start or reuse background `damage_calculation` tasks from the page (UP-24-05).
+- Durability schedule upload and save now show damage-calculation progress in the metadata edit dialog when the server returns `damage_task_id`, including close-only modal behavior, scoped inline banner, locked live messages, prerequisite reports without polling, and a failure summary that reopens the schedule editor with highlighted fields (UP-24-04).
+- Durability schedule upload and save now trigger a background `damage_calculation` derived-data task when prerequisites are current, or return a structured `damage_prerequisite_report` when raw load histories or cross-plot data are missing or stale (UP-24-03).
+- Latest schedule-driven load-history damage persists in `event_channel_damage` (one row per event/channel) with current, stale, and error status; channel or schedule changes mark prior results stale without deleting them (UP-24-03).
+- Assign Channels save and channel-map YAML upload now show a derived-data progress modal that polls the background `channel_reprocess` task, with close-only behavior, scoped inline banner, and completion summaries for success and partial failure (UP-24-02).
+- Assign Channels save and channel-map YAML upload now start a background `channel_reprocess` derived-data task with creator-scoped polling instead of blocking the browser until retained-artifact reprocessing completes (UP-24-01).
+- Metadata edit dialog three-section hardening: Durability Schedule dirty state participates in shared discard-close and pending scope-change prompts; read-only users cannot upload schedules from the popup; schedule save/upload refresh the scoped query baseline (DMD-23-03).
+- Database table metadata edit dialog now includes a **Durability Schedule** left-nav section directly below Assign Channels; opens scoped to the clicked program/version with inline `.sch` upload, schedule table, Reset, and Save while preserving table context (DMD-23-02).
+- Reusable `DurabilitySchedulePanel` extracted from the Edit Metadata route for scope-driven schedule load, attach/extract, inline edit, reset, save, dirty reporting, and write-permission gating; full-page route keeps side-panel upload while the panel supports inline upload for dialog embedding (DMD-23-01).
+- Assign Channels **Upload** action for scoped `channel_map.yml` / `channel_map.yaml` uploads: opens a channel-map-only popup, applies the map to the current program/version, processes retained artifacts through the same path as manual save, and refreshes the editor table (DMD-22-01).
+- Metadata edit dialog cross-section hardening: combined metadata + channel-map dirty-close prompts, shared channel-map save invalidation (Database table, filters, event catalog), write-permission parity for Assign Channels, and regression tests for save refresh and accessible nav switching (DMD-21-03).
+- Database table metadata edit dialog now includes an **Assign Channels** left-nav section that renders the same scoped channel-map editor and CSV preview as the full-page `/database/edit` route; both sections stay mounted while the dialog is open so drafts persist when switching (DMD-21-02).
+- Reusable `AssignChannelsPanel` extracted from the Edit Metadata route for scope-driven channel-map load, save, dirty reporting, and write-permission gating (DMD-21-01).
+- Database table version-row pencil opens an inline **Edit Metadata** dialog pre-scoped to the clicked program/version; settings-style modal with left navigation rail, no route change, and table filters/selection preserved on close (DMD-20-02).
+- Metadata edit dialog now confirms before discarding unsaved changes on close or when opening another version row; write/admin permission rules and post-save query invalidation match the full-page Edit Metadata workflow (DMD-20-03).
 - Database scope delete confirmation and progress modal: admins see a scope summary before delete, a blocking phased progress dialog during long program/version hard-deletes, and a completion summary with counts and elapsed time. UI follows shadcn.io `dialog-bulk-actions`, `dialog-confirm-delete`, `dialog-loading`, and `dialog-success` block patterns.
 - **PUT** `/api/v1/dashboard/program-version/schedule` to persist edited durability schedule table rows (`event_rows`, `multiplier`, `delimiter_token`) on the active schedule preview metadata without re-uploading `.sch` bytes; audits `DURABILITY_SCHEDULE_EDITED`.
 - Editable Durability Schedule tab: inline row editing, Save/Reset with dirty tracking, hydration from saved `event_rows` on GET, and readonly mode for non-write users.
 - Pure client durability schedule row matcher (`discoverEventDelimiter`, `rspEventNameFromFile`, `matchSchedulePattern`, `buildDurabilityScheduleRows`) aligned with `rsp_file_name_extraction_v2.ipynb` — delimiter discovery, longest-substring pattern match, and unit tests for PRD fixture filenames.
 - Durability schedule attach/read API regression tests covering GET active context, POST validation (empty/non-`.sch`), admin cross-owner attach, identical checksum dedupe, and parser edge cases (`*summary`, missing metadata defaults, zero repeats).
 - **Settings** modal dialog (sidebar icon): two-column layout with **User Management** and **Database** panels. User Management preserves admin CRUD (role, write access, password reset). Database panel embeds Transfer Data actions (create, connect, export, import).
-- Inspect Damage calculates per-event fatigue damage for the 12 canonical channels derived from the existing plot channel map.
+- Inspect Damage displays persisted per-event schedule damage for the 12 canonical channels derived from the existing plot channel map.
 - CSV and RSP uploads now retain immutable original file bytes under managed `artifacts/sources/` with SHA-256 checksums and portable `artifact://` URIs recorded in `source_artifacts`.
 - CSV and RSP uploads now derive canonical CSV artifacts under `artifacts/canonical/` with ingestion-run audit records and per-event lineage links.
 - YAML and UI channel-map authoring now normalize into immutable snapshots under `artifacts/snapshots/` with one active snapshot per program/version and per-event snapshot lineage.
@@ -19,7 +58,8 @@
 - Admin database export now produces a transfer package with `manifest.json`, lineage Parquet tables, and portable `artifacts/` files (sources, canonical CSV, snapshots, schedules). Import validates artifact checksums and rejects missing references before applying data.
 
 ### Changed
-- Uploads without `channel_map.yaml` now create `dim_event` rows immediately (CSV and RSP) while retaining pending artifacts for later channel-map setup and measurement generation in Edit Metadata.
+- Channel-map save/upload API responses now return `{ task_id, task_kind, reused_existing_task }` instead of synchronous process counts; client progress UI lands in UP-24-02 (UP-24-01).
+- Edit Metadata tab logic extracted into reusable `EditMetadataPanel` (scope-driven); full-page `/database/edit` route behavior unchanged — prepares inline Database table metadata dialog (DMD-20).
 - Upload, delete, and database transfer dialogs now use a compact 32px status badge with 16px icons and avoid repeating the header title inside summaries.
 - Database folder import now shows progress and completion in a blocking operation dialog (matching scope delete and DB import/export), instead of inline progress in the upload side panel.
 - Identical durability schedule re-upload (same checksum already active for the program/version) is now a silent no-op with no duplicate audit log entry.

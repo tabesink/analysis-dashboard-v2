@@ -197,6 +197,8 @@ class SchemaLoader:
             columns = ", ".join(constraint.get("columns", []))
             if constraint_type == "unique":
                 clauses.append(f"UNIQUE ({columns})")
+            elif constraint_type == "primary_key":
+                clauses.append(f"PRIMARY KEY ({columns})")
         return clauses
 
     def generate_table_sql(self, table_name: str, table_def: dict[str, Any]) -> str:

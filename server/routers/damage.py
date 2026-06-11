@@ -2,17 +2,25 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from server.dependencies import QueryServiceDep, get_current_user
+from server.dependencies import (
+    DamageCalculationTaskServiceDep,
+    QueryServiceDep,
+    WriteUserDep,
+    get_current_user,
+)
 from server.models.damage import (
-    DamageCell,
-    DamageChannelMetadata,
+    DamageCalculateRequest,
+    DamageCalculateResponse,
     DamageInspectRequest,
     DamageInspectResponse,
-    DamageInspectRow,
 )
-from server.services.fatigue_damage import ChannelSeries, FatigueDamageCalculator
+from server.services.damage_inspect import build_damage_inspect_response
+from server.services.post_upload_precompute import (
+    decide_after_inspect_damage_access,
+    inspect_precompute_decision_to_response,
+)
 
 
 router = APIRouter(prefix="/damage", dependencies=[Depends(get_current_user)])
@@ -23,62 +31,74 @@ async def inspect_damage(
     request: DamageInspectRequest,
     query_service: QueryServiceDep,
 ) -> DamageInspectResponse:
-    if not request.event_ids:
-        return DamageInspectResponse(channels=[], rows=[])
-    series = query_service.get_damage_channel_series(request.event_ids)
-    calculator = FatigueDamageCalculator()
+    return build_damage_inspect_response(
+        query_service.db,
+        query_service,
+        event_ids=request.event_ids,
+    )
 
-    channels_by_key: dict[str, DamageChannelMetadata] = {}
-    rows_by_event: dict[str, DamageInspectRow] = {}
-    for event_id in request.event_ids:
-        event = query_service.db.get_event(event_id)
-        if event is None:
-            continue
-        rows_by_event[event_id] = DamageInspectRow(
-            event_id=event_id,
-            job_number=event.get("job_number"),
-            work_order=event.get("work_order"),
-            program_id=event["program_id"],
-            damages={},
-        )
 
-    for item in series:
-        event_id = item["event_id"]
-        row = rows_by_event.get(event_id)
-        if row is None:
-            continue
+@router.post("/backfill", response_model=DamageCalculateResponse)
+async def backfill_missing_damage(
+    request: DamageCalculateRequest,
+    damage_service: DamageCalculationTaskServiceDep,
+    user: WriteUserDep,
+) -> DamageCalculateResponse:
+    decision = decide_after_inspect_damage_access(
+        damage_service.db,
+        program_id=request.program_id,
+        version=request.version,
+        user_id=user["id"],
+        damage_service=damage_service,
+    )
+    payload = inspect_precompute_decision_to_response(decision)
+    if "damage_prerequisite_report" in payload:
+        from server.models.damage import DamageFailureReport
 
-        channel_key = item["channel_key"]
-        channels_by_key.setdefault(
-            channel_key,
-            DamageChannelMetadata(
-                channel_key=channel_key,
-                channel_name=item["channel_name"],
-                unit=item.get("unit"),
+        return DamageCalculateResponse(
+            damage_prerequisite_report=DamageFailureReport(
+                **payload["damage_prerequisite_report"],
             ),
         )
-        if item.get("status") == "unavailable":
-            row.damages[channel_key] = DamageCell(
-                damage=None,
-                status="unavailable",
-                error=item.get("error") or "Damage channel is unavailable",
-            )
-            continue
+    return DamageCalculateResponse(
+        damage_task_id=payload.get("damage_task_id"),
+        task_kind=payload.get("task_kind"),
+        reused_existing_task=payload.get("reused_existing_task"),
+    )
 
-        result = calculator.calculate_channel(
-            ChannelSeries(
-                channel_key=channel_key,
-                channel_name=item["channel_name"],
-                unit=item.get("unit"),
-                values=item["values"],
-            )
-        )
-        row.damages[channel_key] = DamageCell(
-            damage=result.damage,
-            status=result.status,
-            error=result.error,
+
+@router.post("/calculate", response_model=DamageCalculateResponse)
+async def start_damage_calculation(
+    request: DamageCalculateRequest,
+    damage_service: DamageCalculationTaskServiceDep,
+    user: WriteUserDep,
+) -> DamageCalculateResponse:
+    active_schedule = damage_service.db.get_active_durability_schedule(
+        request.program_id,
+        request.version,
+    )
+    if active_schedule is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active durability schedule is attached for this program/version",
         )
 
-    channels = list(channels_by_key.values())
-    rows = [rows_by_event[event_id] for event_id in request.event_ids if event_id in rows_by_event]
-    return DamageInspectResponse(channels=channels, rows=rows)
+    result = damage_service.maybe_start_after_schedule_change(
+        program_id=request.program_id,
+        version=request.version,
+        user_id=user["id"],
+        active_schedule=active_schedule,
+    )
+    if "damage_prerequisite_report" in result:
+        from server.models.damage import DamageFailureReport
+
+        return DamageCalculateResponse(
+            damage_prerequisite_report=DamageFailureReport(
+                **result["damage_prerequisite_report"],
+            ),
+        )
+    return DamageCalculateResponse(
+        damage_task_id=result["task_id"],
+        task_kind=result["task_kind"],
+        reused_existing_task=result.get("reused_existing_task"),
+    )

@@ -171,6 +171,28 @@ export interface ChannelMapProcessResult {
   failed: Array<Record<string, unknown>>;
 }
 
+export type DerivedTaskKind = 'channel_reprocess' | 'damage_calculation';
+
+export interface DerivedTaskStartResponse {
+  task_id: string;
+  task_kind: DerivedTaskKind;
+  reused_existing_task: boolean;
+}
+
+export interface DerivedTaskStatusEvent {
+  task_id: string;
+  task_kind: DerivedTaskKind;
+  status: string;
+  phase: string;
+  sub_phase?: string | null;
+  progress_message?: string | null;
+  completed_events: number;
+  total_events: number;
+  current_event?: string | null;
+  error?: string | null;
+  result?: Record<string, unknown> | null;
+}
+
 export interface DurabilityScheduleEntryPreview {
   pattern: string;
   repeats: number;
@@ -213,11 +235,34 @@ export interface DurabilityScheduleContextResponse {
   schedule_sha256: string;
   source_filename: string;
   parse_preview: DurabilitySchedulePreview;
+  damage_task_id?: string;
+  damage_prerequisite_report?: DamageFailureReport;
 }
 
 export interface DurabilityScheduleAttachResponse extends DurabilityScheduleContextResponse {
   replaced_previous: boolean;
   previous_schedule_id: number | null;
+}
+
+export type DamageFailureField =
+  | 'repeats'
+  | 'weight'
+  | 'rspEventName'
+  | 'schedulePattern'
+  | 'event_id'
+  | 'channel';
+
+export interface DamageFailureIssue {
+  event_id?: string;
+  event_name?: string;
+  field: DamageFailureField;
+  code: string;
+  message: string;
+}
+
+export interface DamageFailureReport {
+  summary: string;
+  issues: DamageFailureIssue[];
 }
 
 export interface DamageChannelMetadata {
@@ -228,8 +273,30 @@ export interface DamageChannelMetadata {
 
 export interface DamageCell {
   damage: number | null;
+  base_damage?: number | null;
   status: string;
   error?: string | null;
+  stale_reason?: string | null;
+}
+
+export interface DamageInspectScopeState {
+  program_id: string;
+  version: string;
+  has_current_results: boolean;
+  has_stale_results: boolean;
+  needs_damage_repair?: boolean;
+  has_active_schedule: boolean;
+  can_start_calculation: boolean;
+  prerequisite_report?: DamageFailureReport | null;
+  failure_report?: DamageFailureReport | null;
+  active_damage_task_id?: string | null;
+}
+
+export interface DamageCalculateResponse {
+  damage_task_id?: string | null;
+  task_kind?: 'damage_calculation' | null;
+  reused_existing_task?: boolean | null;
+  damage_prerequisite_report?: DamageFailureReport | null;
 }
 
 export interface DamageInspectRow {
@@ -243,6 +310,8 @@ export interface DamageInspectRow {
 export interface DamageInspectResponse {
   channels: DamageChannelMetadata[];
   rows: DamageInspectRow[];
+  has_stale_values?: boolean;
+  scopes?: DamageInspectScopeState[];
 }
 
 // ============================================================================

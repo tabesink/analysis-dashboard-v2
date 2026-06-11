@@ -53,7 +53,6 @@ export function NavMain({ items }: NavMainProps) {
             const routeActive = pathname === item.url ||
               (item.url !== "/" && pathname.startsWith(item.url))
             const isDatabaseEntry = item.url === "/database"
-            const isFilterEditorEntry = item.url === "/database/edit"
             const permitted = isPermitted(item)
             const isActive = permitted && routeActive
             const tooltipLabel = !permitted
@@ -99,7 +98,7 @@ export function NavMain({ items }: NavMainProps) {
                     )}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-                {isFilterEditorEntry && (
+                {isDatabaseEntry && (
                   <SidebarSeparator className="my-2 mx-auto w-8 opacity-100 bg-sidebar-border/90" />
                 )}
               </React.Fragment>

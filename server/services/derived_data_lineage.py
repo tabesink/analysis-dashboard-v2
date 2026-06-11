@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-MEASUREMENTS_DATA_KIND = "full_resolution_derived"
+MEASUREMENTS_DATA_KIND = "full_resolution_canonical"
 LTTB_DATA_KIND = "plot_only"
 STATUS_CURRENT = "current"
 STATUS_STALE = "stale"
@@ -13,7 +13,7 @@ STATUS_ABSENT = "absent"
 
 
 class DerivedDataLineageService:
-    """Record and query derived-data lineage for measurements and LTTB rows."""
+    """Record and query canonical raw-measurement and LTTB lineage."""
 
     def __init__(self, db: Any) -> None:
         self.db = db
@@ -28,7 +28,7 @@ class DerivedDataLineageService:
         has_lttb: bool,
         conn: Any | None = None,
     ) -> None:
-        """Persist lineage for an event after measurements and/or LTTB rows are written."""
+        """Persist lineage for an event after canonical raw and/or LTTB rows are written."""
         run = self.db.get_ingestion_run(ingestion_run_id)
         if run is None:
             raise ValueError(f"Unknown ingestion run: {ingestion_run_id}")
@@ -54,7 +54,7 @@ class DerivedDataLineageService:
         active_snapshot_id: int,
         conn: Any | None = None,
     ) -> int:
-        """Mark Pending events stale when their derived snapshot differs from active."""
+        """Mark Pending events' plot-derived data stale when their snapshot differs."""
         return self.db.mark_stale_pending_derived_data(
             program_id=program_id,
             version=version,

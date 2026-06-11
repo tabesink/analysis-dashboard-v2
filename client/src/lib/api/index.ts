@@ -9,4 +9,5 @@ export type { InferredImportOutcome } from './export';
 export { infoApi, type InfoResponse } from './info';
 export { authApi } from './auth';
 export { usersApi } from './users';
-export { syncApi, type SyncVersionResponse } from './sync';
+export { derivedDataApi } from './derived-data';
+export type { DerivedTaskPollConnectionState } from './derived-data';

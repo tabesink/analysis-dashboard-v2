@@ -51,6 +51,7 @@ class UploadTaskEvent(BaseModel):
     completed_events: int = 0
     total_events: int = 0
     current_event: str | None = None
+    progress_message: str | None = None
     error: str | None = None
     result: UploadResponse | None = None
 

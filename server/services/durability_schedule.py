@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from server.services.schedule_event_rows import build_schedule_event_rows
 from server.services.source_artifact_storage import ARTIFACT_SCHEME, UNSAFE_PATH_PATTERN
 
 SCHEDULE_PREFIX = "schedules/"
@@ -159,15 +160,46 @@ class DurabilityScheduleStorageService:
                 },
             )
 
-        return StoredDurabilitySchedule(
+        self._persist_generated_event_rows(
+            program_id=program_id,
+            version=version,
             schedule_id=schedule_id,
-            artifact_uri=artifact_uri,
-            schedule_sha256=schedule_sha256,
-            source_filename=source_filename,
-            parse_preview_json=parsed.parse_preview_json,
+        )
+        self.db.mark_event_channel_damage_stale(
+            program_id=program_id,
+            version=version,
+            stale_reason="schedule_changed",
+        )
+
+        refreshed = self.db.get_active_durability_schedule(program_id, version)
+        if refreshed is None:
+            raise LookupError("No active durability schedule")
+        return StoredDurabilitySchedule(
+            schedule_id=int(refreshed["schedule_id"]),
+            artifact_uri=str(refreshed["artifact_uri"]),
+            schedule_sha256=str(refreshed["schedule_sha256"]),
+            source_filename=str(refreshed["source_filename"]),
+            parse_preview_json=str(refreshed["parse_preview_json"]),
             replaced_previous=replaced_previous,
             previous_schedule_id=previous_schedule_id,
         )
+
+    def _persist_generated_event_rows(
+        self,
+        *,
+        program_id: str,
+        version: str,
+        schedule_id: int,
+    ) -> None:
+        """Persist hydrated editable event rows before schedule-driven damage starts."""
+        active = self.db.get_active_durability_schedule(program_id, version)
+        if active is None:
+            raise LookupError("No active durability schedule")
+        preview = json.loads(str(active["parse_preview_json"]))
+        events = self.db.get_events(program_id=program_id, version=version)
+        preview["event_rows"] = build_schedule_event_rows(events, list(preview.get("entries") or []))
+        updated_preview_json = json.dumps(preview, sort_keys=True, separators=(",", ":"))
+        self.db.update_durability_schedule_parse_preview(schedule_id, updated_preview_json)
 
     def build_artifact_uri(self, schedule_sha256: str) -> str:
         artifact_key = self._artifact_key(schedule_sha256)
@@ -252,4 +284,9 @@ class DurabilityScheduleStorageService:
         updated = self.db.get_active_durability_schedule(program_id, version)
         if updated is None:
             raise LookupError("No active durability schedule")
+        self.db.mark_event_channel_damage_stale(
+            program_id=program_id,
+            version=version,
+            stale_reason="schedule_changed",
+        )
         return updated

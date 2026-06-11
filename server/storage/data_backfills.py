@@ -21,6 +21,37 @@ def _column_exists(conn: Any, table_name: str, column_name: str) -> bool:
     )
 
 
+def _table_exists(conn: Any, table_name: str) -> bool:
+    return (
+        conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.tables
+            WHERE table_schema = 'main' AND table_name = ?
+            """,
+            [table_name],
+        ).fetchone()[0]
+        > 0
+    )
+
+
+def _primary_key_columns(conn: Any, table_name: str) -> list[str]:
+    rows = conn.execute(
+        """
+        SELECT kcu.column_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+         AND tc.table_name = kcu.table_name
+        WHERE tc.table_name = ?
+          AND tc.constraint_type = 'PRIMARY KEY'
+        ORDER BY kcu.ordinal_position
+        """,
+        [table_name],
+    ).fetchall()
+    return [str(row[0]) for row in rows]
+
+
 def _generic_col_index(value: Any) -> int | None:
     text = str(value or "").strip()
     if not text.startswith("col_") or not text[4:].isdigit():
@@ -107,6 +138,70 @@ def _backfill_channel_map_headers(conn: Any) -> None:
         repaired_ids.add(row_id)
 
 
+def _repair_event_channel_damage_primary_key(conn: Any) -> None:
+    if not _table_exists(conn, "event_channel_damage"):
+        return
+    if _primary_key_columns(conn, "event_channel_damage") == ["event_id", "channel_key"]:
+        return
+
+    legacy_table = "event_channel_damage__legacy_pk_repair"
+    conn.execute(f"DROP TABLE IF EXISTS {legacy_table}")
+    conn.execute("DROP INDEX IF EXISTS idx_event_channel_damage_event")
+    conn.execute(f"ALTER TABLE event_channel_damage RENAME TO {legacy_table}")
+    conn.execute(
+        """
+        CREATE TABLE event_channel_damage (
+            event_id VARCHAR NOT NULL,
+            channel_key VARCHAR NOT NULL,
+            channel_name VARCHAR NOT NULL,
+            channel_unit VARCHAR,
+            base_damage DOUBLE,
+            scheduled_damage DOUBLE,
+            repeats INTEGER,
+            weight DOUBLE,
+            multiplier DOUBLE,
+            schedule_id BIGINT,
+            schedule_sha256 VARCHAR,
+            status VARCHAR NOT NULL,
+            stale_reason VARCHAR,
+            error VARCHAR,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (event_id, channel_key)
+        )
+        """
+    )
+    conn.execute(
+        f"""
+        INSERT INTO event_channel_damage (
+            event_id, channel_key, channel_name, channel_unit,
+            base_damage, scheduled_damage, repeats, weight, multiplier,
+            schedule_id, schedule_sha256, status, stale_reason, error, updated_at
+        )
+        SELECT
+            event_id, channel_key, channel_name, channel_unit,
+            base_damage, scheduled_damage, repeats, weight, multiplier,
+            schedule_id, schedule_sha256, status, stale_reason, error, updated_at
+        FROM (
+            SELECT
+                *,
+                ROW_NUMBER() OVER (
+                    PARTITION BY event_id, channel_key
+                    ORDER BY updated_at DESC, schedule_sha256 DESC
+                ) AS damage_row_rank
+            FROM {legacy_table}
+        )
+        WHERE damage_row_rank = 1
+        """
+    )
+    conn.execute(f"DROP TABLE {legacy_table}")
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_event_channel_damage_event
+        ON event_channel_damage(event_id)
+        """
+    )
+
+
 def apply_startup_backfills(conn: Any) -> None:
     """Apply idempotent row backfills needed for legacy data compatibility."""
     users_can_write_exists = _column_exists(conn, "users", "can_write")
@@ -148,3 +243,4 @@ def apply_startup_backfills(conn: Any) -> None:
     )
 
     _backfill_channel_map_headers(conn)
+    _repair_event_channel_damage_primary_key(conn)

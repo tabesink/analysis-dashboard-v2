@@ -8,7 +8,7 @@ import type {
   CustomFieldDefinitionResponse,
   ChannelMapEditorEntry,
   ChannelMapEditorResponse,
-  ChannelMapProcessResult,
+  DerivedTaskStartResponse,
   DurabilityScheduleAttachResponse,
   DurabilityScheduleContextResponse,
   DurabilityScheduleSaveRequest,
@@ -107,11 +107,25 @@ export const dashboardApi = {
     version: string;
     entries: ChannelMapEditorEntry[];
   }) =>
-    put<ChannelMapProcessResult>(
+    put<DerivedTaskStartResponse>(
       '/api/v1/dashboard/program-version/channel-map',
       payload,
-      300_000
     ),
+
+  uploadChannelMap: (payload: {
+    program_id: string;
+    version: string;
+    channelMapFile: File;
+  }) => {
+    const formData = new FormData();
+    formData.append('program_id', payload.program_id);
+    formData.append('version', payload.version);
+    formData.append('channel_map', payload.channelMapFile);
+    return postFormDataWithProgress<DerivedTaskStartResponse>(
+      '/api/v1/dashboard/program-version/channel-map/upload',
+      formData,
+    );
+  },
 
   getProgramVersionSchedule: (programId: string, version: string) =>
     get<DurabilityScheduleContextResponse>(

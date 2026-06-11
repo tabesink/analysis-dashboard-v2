@@ -1218,6 +1218,43 @@ class UnifiedStore:
         columns = [desc[0] for desc in self.read_connection.description]
         return dict(zip(columns, row))
 
+    def get_ingestion_artifact_for_event(self, event_id: str) -> dict[str, Any] | None:
+        """Return the retained ingestion artifact associated with an event."""
+        row = self.read_connection.execute(
+            """
+            SELECT *
+            FROM ingestion_artifacts
+            WHERE event_id = ?
+            ORDER BY artifact_id DESC
+            LIMIT 1
+            """,
+            [event_id],
+        ).fetchone()
+        if row is not None:
+            columns = [desc[0] for desc in self.read_connection.description]
+            return dict(zip(columns, row))
+
+        event = self.get_event(event_id)
+        if event is None or not event.get("source_file"):
+            return None
+
+        row = self.read_connection.execute(
+            """
+            SELECT *
+            FROM ingestion_artifacts
+            WHERE program_id = ?
+              AND version = ?
+              AND source_file = ?
+            ORDER BY artifact_id DESC
+            LIMIT 1
+            """,
+            [event["program_id"], event["version"], event["source_file"]],
+        ).fetchone()
+        if row is None:
+            return None
+        columns = [desc[0] for desc in self.read_connection.description]
+        return dict(zip(columns, row))
+
     def upsert_event_derived_data(
         self,
         *,
@@ -1275,6 +1312,186 @@ class UnifiedStore:
         columns = [desc[0] for desc in self.read_connection.description]
         return dict(zip(columns, row))
 
+    def upsert_event_channel_damage(
+        self,
+        *,
+        event_id: str,
+        channel_key: str,
+        channel_name: str,
+        channel_unit: str | None,
+        base_damage: float | None,
+        scheduled_damage: float | None,
+        repeats: int | None,
+        weight: float | None,
+        multiplier: float | None,
+        schedule_id: int | None,
+        schedule_sha256: str | None,
+        status: str,
+        stale_reason: str | None = None,
+        error: str | None = None,
+        conn: Any | None = None,
+    ) -> None:
+        """Insert or overwrite the latest damage row for an event/channel pair."""
+        sql = """
+            INSERT INTO event_channel_damage (
+                event_id, channel_key, channel_name, channel_unit,
+                base_damage, scheduled_damage, repeats, weight, multiplier,
+                schedule_id, schedule_sha256, status, stale_reason, error
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (event_id, channel_key) DO UPDATE SET
+                channel_name = EXCLUDED.channel_name,
+                channel_unit = EXCLUDED.channel_unit,
+                base_damage = EXCLUDED.base_damage,
+                scheduled_damage = EXCLUDED.scheduled_damage,
+                repeats = EXCLUDED.repeats,
+                weight = EXCLUDED.weight,
+                multiplier = EXCLUDED.multiplier,
+                schedule_id = EXCLUDED.schedule_id,
+                schedule_sha256 = EXCLUDED.schedule_sha256,
+                status = EXCLUDED.status,
+                stale_reason = EXCLUDED.stale_reason,
+                error = EXCLUDED.error,
+                updated_at = now()
+        """
+        params = [
+            event_id,
+            channel_key,
+            channel_name,
+            channel_unit,
+            base_damage,
+            scheduled_damage,
+            repeats,
+            weight,
+            multiplier,
+            schedule_id,
+            schedule_sha256,
+            status,
+            stale_reason,
+            error,
+        ]
+        if conn is not None:
+            conn.execute(sql, params)
+            return
+        with self.write_connection() as write_conn:
+            write_conn.execute(sql, params)
+
+    def get_event_channel_damage(
+        self,
+        event_id: str,
+        channel_key: str,
+    ) -> dict[str, Any] | None:
+        """Return the latest persisted damage row for an event/channel pair."""
+        row = self.read_connection.execute(
+            """
+            SELECT *
+            FROM event_channel_damage
+            WHERE event_id = ? AND channel_key = ?
+            """,
+            [event_id, channel_key],
+        ).fetchone()
+        if row is None:
+            return None
+        columns = [desc[0] for desc in self.read_connection.description]
+        return dict(zip(columns, row))
+
+    def list_event_channel_damage_for_program_version(
+        self,
+        program_id: str,
+        version: str,
+    ) -> list[dict[str, Any]]:
+        """Return latest damage rows for events in a program/version."""
+        rows = self.read_connection.execute(
+            """
+            SELECT d.*
+            FROM event_channel_damage d
+            JOIN dim_event e ON e.event_id = d.event_id
+            WHERE e.program_id = ?
+              AND e.version = ?
+              AND e.is_deleted = false
+            ORDER BY d.event_id, d.channel_key
+            """,
+            [program_id, version],
+        ).fetchall()
+        columns = [desc[0] for desc in self.read_connection.description]
+        return [dict(zip(columns, row)) for row in rows]
+
+    def list_event_channel_damage_for_event_ids(
+        self,
+        event_ids: list[str],
+    ) -> list[dict[str, Any]]:
+        """Return latest damage rows for the requested events."""
+        if not event_ids:
+            return []
+        placeholders = ", ".join("?" for _ in event_ids)
+        rows = self.read_connection.execute(
+            f"""
+            SELECT d.*
+            FROM event_channel_damage d
+            JOIN dim_event e ON e.event_id = d.event_id
+            WHERE d.event_id IN ({placeholders})
+              AND e.is_deleted = false
+            ORDER BY d.event_id, d.channel_key
+            """,
+            list(event_ids),
+        ).fetchall()
+        columns = [desc[0] for desc in self.read_connection.description]
+        return [dict(zip(columns, row)) for row in rows]
+
+    def mark_event_channel_damage_stale(
+        self,
+        *,
+        program_id: str,
+        version: str,
+        stale_reason: str,
+        conn: Any | None = None,
+    ) -> int:
+        """Mark current damage rows stale without deleting them."""
+        sql = """
+            UPDATE event_channel_damage
+            SET status = 'stale',
+                stale_reason = ?,
+                updated_at = now()
+            FROM dim_event e
+            WHERE event_channel_damage.event_id = e.event_id
+              AND e.program_id = ?
+              AND e.version = ?
+              AND e.is_deleted = false
+              AND event_channel_damage.status = 'current'
+        """
+        params = [stale_reason, program_id, version]
+        if conn is not None:
+            before = conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM event_channel_damage d
+                JOIN dim_event e ON e.event_id = d.event_id
+                WHERE e.program_id = ?
+                  AND e.version = ?
+                  AND e.is_deleted = false
+                  AND d.status = 'current'
+                """,
+                [program_id, version],
+            ).fetchone()
+            conn.execute(sql, params)
+            return int(before[0] if before else 0)
+
+        with self.write_connection() as write_conn:
+            before = write_conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM event_channel_damage d
+                JOIN dim_event e ON e.event_id = d.event_id
+                WHERE e.program_id = ?
+                  AND e.version = ?
+                  AND e.is_deleted = false
+                  AND d.status = 'current'
+                """,
+                [program_id, version],
+            ).fetchone()
+            write_conn.execute(sql, params)
+            return int(before[0] if before else 0)
+
     def mark_stale_pending_derived_data(
         self,
         *,
@@ -1283,11 +1500,10 @@ class UnifiedStore:
         active_snapshot_id: int,
         conn: Any | None = None,
     ) -> int:
-        """Mark Pending events stale when their snapshot differs from the active snapshot."""
+        """Mark plot-derived data stale when the active channel-map snapshot changes."""
         sql = """
             UPDATE event_derived_data
-            SET measurements_status = 'stale',
-                lttb_status = 'stale',
+            SET lttb_status = 'stale',
                 updated_at = now()
             FROM dim_event e
             WHERE event_derived_data.event_id = e.event_id
@@ -1296,10 +1512,7 @@ class UnifiedStore:
               AND e.status = 'Pending'
               AND e.is_deleted = false
               AND event_derived_data.channel_map_snapshot_id IS DISTINCT FROM ?
-              AND (
-                  event_derived_data.measurements_status = 'current'
-                  OR event_derived_data.lttb_status = 'current'
-              )
+              AND event_derived_data.lttb_status = 'current'
         """
         params = [program_id, version, active_snapshot_id]
         if conn is not None:
@@ -1313,7 +1526,7 @@ class UnifiedStore:
                   AND e.status = 'Pending'
                   AND e.is_deleted = false
                   AND d.channel_map_snapshot_id IS DISTINCT FROM ?
-                  AND (d.measurements_status = 'current' OR d.lttb_status = 'current')
+                  AND d.lttb_status = 'current'
                 """,
                 params,
             ).fetchone()
@@ -1331,7 +1544,7 @@ class UnifiedStore:
                   AND e.status = 'Pending'
                   AND e.is_deleted = false
                   AND d.channel_map_snapshot_id IS DISTINCT FROM ?
-                  AND (d.measurements_status = 'current' OR d.lttb_status = 'current')
+                  AND d.lttb_status = 'current'
                 """,
                 params,
             ).fetchone()
@@ -2293,6 +2506,10 @@ class UnifiedStore:
         created_by_user_id: str,
         total_events: int,
         ttl_minutes: int = 30,
+        *,
+        task_kind: str = "folder_upload",
+        phase: str = "upload_received",
+        scope: dict[str, str] | None = None,
     ) -> None:
         """Create upload task row."""
         expires_at = datetime.utcnow() + timedelta(minutes=ttl_minutes)
@@ -2300,13 +2517,70 @@ class UnifiedStore:
             conn.execute(
                 """
                 INSERT INTO upload_tasks (
-                    task_id, created_by_user_id, status, phase,
-                    completed_events, total_events, expires_at
+                    task_id, created_by_user_id, status, phase, task_kind,
+                    completed_events, total_events, scope_json, expires_at
                 )
-                VALUES (?, ?, 'queued', 'upload_received', 0, ?, ?)
+                VALUES (?, ?, 'queued', ?, ?, 0, ?, ?, ?)
                 """,
-                [task_id, created_by_user_id, total_events, expires_at],
+                [
+                    task_id,
+                    created_by_user_id,
+                    phase,
+                    task_kind,
+                    total_events,
+                    json.dumps(scope) if scope is not None else None,
+                    expires_at,
+                ],
             )
+
+    def find_active_derived_data_task(
+        self,
+        program_id: str,
+        version: str,
+    ) -> dict[str, Any] | None:
+        """Return the active derived-data task for a program/version scope, if any."""
+        row = self.read_connection.execute(
+            """
+            SELECT *
+            FROM upload_tasks
+            WHERE task_kind IN ('channel_reprocess', 'damage_calculation')
+              AND status IN ('queued', 'running')
+              AND json_extract_string(scope_json, '$.program_id') = ?
+              AND json_extract_string(scope_json, '$.version') = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            [program_id, version],
+        ).fetchone()
+        if row is None:
+            return None
+        columns = [desc[0] for desc in self.read_connection.description]
+        return self._normalize_upload_task_row(dict(zip(columns, row)))
+
+    def find_latest_failed_damage_calculation_task(
+        self,
+        program_id: str,
+        version: str,
+    ) -> dict[str, Any] | None:
+        """Return the latest failed damage calculation task for a program/version."""
+        row = self.read_connection.execute(
+            """
+            SELECT *
+            FROM upload_tasks
+            WHERE task_kind = 'damage_calculation'
+              AND status = 'failed'
+              AND expires_at >= CURRENT_TIMESTAMP
+              AND json_extract_string(scope_json, '$.program_id') = ?
+              AND json_extract_string(scope_json, '$.version') = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            [program_id, version],
+        ).fetchone()
+        if row is None:
+            return None
+        columns = [desc[0] for desc in self.read_connection.description]
+        return self._normalize_upload_task_row(dict(zip(columns, row)))
 
     def update_upload_task(
         self,
@@ -2314,6 +2588,8 @@ class UnifiedStore:
         *,
         status: str | None = None,
         phase: str | None = None,
+        sub_phase: str | None = None,
+        progress_message: Any = "__UNCHANGED__",
         completed_events: int | None = None,
         total_events: int | None = None,
         current_event: Any = "__UNCHANGED__",
@@ -2329,6 +2605,12 @@ class UnifiedStore:
         if phase is not None:
             assignments.append("phase = ?")
             params.append(phase)
+        if sub_phase is not None:
+            assignments.append("sub_phase = ?")
+            params.append(sub_phase)
+        if progress_message != "__UNCHANGED__":
+            assignments.append("progress_message = ?")
+            params.append(progress_message)
         if completed_events is not None:
             assignments.append("completed_events = ?")
             params.append(completed_events)
@@ -2370,7 +2652,9 @@ class UnifiedStore:
         if row is None:
             return None
         columns = [desc[0] for desc in self.read_connection.description]
-        result = dict(zip(columns, row))
+        return self._normalize_upload_task_row(dict(zip(columns, row)))
+
+    def _normalize_upload_task_row(self, result: dict[str, Any]) -> dict[str, Any]:
         raw = result.get("result_json")
         if raw is not None:
             if isinstance(raw, memoryview):
@@ -2382,6 +2666,17 @@ class UnifiedStore:
                     result["result_json"] = json.loads(raw)
                 except json.JSONDecodeError:
                     result["result_json"] = None
+        raw_scope = result.get("scope_json")
+        if raw_scope is not None:
+            if isinstance(raw_scope, memoryview):
+                raw_scope = raw_scope.tobytes()
+            if isinstance(raw_scope, (bytes, bytearray)):
+                raw_scope = raw_scope.decode("utf-8")
+            if isinstance(raw_scope, str):
+                try:
+                    result["scope_json"] = json.loads(raw_scope)
+                except json.JSONDecodeError:
+                    result["scope_json"] = None
         return result
 
     def delete_expired_upload_tasks(self) -> int:

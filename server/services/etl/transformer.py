@@ -14,7 +14,7 @@ class DataTransformer:
     def transform_to_long(
         self,
         df: pd.DataFrame,
-        channel_map: dict[str, Any],
+        channel_map: dict[str, Any] | None = None,
         timestamp_col: int = 1,
     ) -> pd.DataFrame:
         """
@@ -25,7 +25,7 @@ class DataTransformer:
 
         Args:
             df: Wide-format DataFrame
-            channel_map: Plot configurations with column indices
+            channel_map: Deprecated; raw storage is independent of plot mappings.
             timestamp_col: Column index for timestamp (default 1)
 
         Returns:
@@ -47,23 +47,18 @@ class DataTransformer:
             # Use row index as timestamp
             timestamps = df.index.values
 
-        # Collect all unique column indices from channel map
-        columns_to_extract: set[int] = set()
-        for plot_config in channel_map.values():
-            x_col = plot_config.get("x_col", 0)
-            y_col = plot_config.get("y_col", 1)
-            columns_to_extract.add(x_col)
-            columns_to_extract.add(y_col)
+        # Store canonical full-resolution signal columns. The first two columns
+        # in parsed RSP CSVs are the row/index and timestamp columns.
+        columns_to_extract = range(timestamp_col + 1, len(df.columns))
 
         # Build long-format records
         records: list[dict[str, Any]] = []
 
-        for col_idx in sorted(columns_to_extract):
-            if col_idx >= len(df.columns):
-                continue
-
+        for col_idx in columns_to_extract:
             col_name = df.columns[col_idx] if hasattr(df.columns[col_idx], "__str__") else f"col_{col_idx}"
-            values = df.iloc[:, col_idx].values
+            values = pd.to_numeric(df.iloc[:, col_idx], errors="coerce")
+            if values.isna().all():
+                continue
 
             for ts, val in zip(timestamps, values):
                 records.append({

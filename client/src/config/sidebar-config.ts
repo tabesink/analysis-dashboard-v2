@@ -1,7 +1,6 @@
 import {
   Calculator,
   Database,
-  FilePen,
   LayoutDashboardIcon,
 } from 'lucide-react';
 import type { SidebarConfig } from '@/types/layout';
@@ -17,13 +16,6 @@ export const getSidebarConfig = (): SidebarConfig => ({
       title: 'Database',
       url: '/database',
       icon: Database,
-      requirePermission: 'write',
-      disabledTooltip: 'Read-only access — contact admin',
-    },
-    {
-      title: 'Edit Metadata',
-      url: '/database/edit',
-      icon: FilePen,
       requirePermission: 'write',
       disabledTooltip: 'Read-only access — contact admin',
     },

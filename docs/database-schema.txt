@@ -206,9 +206,30 @@ event_derived_data  (schema.yaml)
   channel_map_snapshot_id BIGINT        snapshot used when measurements/LTTB were derived
   measurements_status     VARCHAR       NOT NULL  (current, stale, absent)
   lttb_status             VARCHAR       NOT NULL  (current, stale, absent)
-  measurements_data_kind  VARCHAR       NOT NULL  DEFAULT full_resolution_derived
+  measurements_data_kind  VARCHAR       NOT NULL  DEFAULT full_resolution_canonical
   lttb_data_kind          VARCHAR       NOT NULL  DEFAULT plot_only
   updated_at              TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
+
+--------------------------------------------------------------------------------
+event_channel_damage  (schema.yaml)
+  Latest schedule-driven load-history damage per event and channel
+--------------------------------------------------------------------------------
+  event_id                VARCHAR       NOT NULL
+  channel_key             VARCHAR       NOT NULL
+  channel_name            VARCHAR       NOT NULL
+  channel_unit            VARCHAR
+  base_damage             DOUBLE
+  scheduled_damage        DOUBLE
+  repeats                 INTEGER
+  weight                  DOUBLE
+  multiplier              DOUBLE
+  schedule_id             BIGINT
+  schedule_sha256         VARCHAR
+  status                  VARCHAR       NOT NULL  (current, stale, error)
+  stale_reason            VARCHAR       machine-readable when status = stale
+  error                   VARCHAR
+  updated_at              TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
+  PRIMARY KEY (event_id, channel_key)
 
 --------------------------------------------------------------------------------
 channel_map_snapshots  (schema.yaml)
@@ -328,6 +349,10 @@ upload_tasks  (schema.yaml)
   created_at          TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
   updated_at          TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
   expires_at          TIMESTAMP     NOT NULL
+  task_kind           VARCHAR       DEFAULT 'folder_upload'  (added via ALTER TABLE)
+  sub_phase           VARCHAR       (added via ALTER TABLE)
+  progress_message    VARCHAR       (added via ALTER TABLE)
+  scope_json          JSON          (added via ALTER TABLE)
 
 --------------------------------------------------------------------------------
 saved_filters  (schema.yaml)
@@ -435,6 +460,7 @@ idx_channel_map                        dim_channel_map(program_id, version)
 idx_meas_raw_event                     measurements_raw(event_id)
 idx_meas_raw_event_channel             measurements_raw(event_id, channel_name)
 idx_meas_lttb_event                    measurements_lttb(event_id, plot_key)
+idx_event_channel_damage_event         event_channel_damage(event_id)
 idx_meas_lttb_covering                 measurements_lttb(plot_key, event_id, x, y)
 idx_sessions_expires                   sessions(expires_at)
 idx_sessions_user                      sessions(user_id)
@@ -455,6 +481,7 @@ LOGICAL RELATIONSHIPS (no enforced FKs)
 dim_program.program_id        <-- dim_event.program_id
 dim_event.event_id            <-- measurements_raw.event_id
 dim_event.event_id            <-- measurements_lttb.event_id
+dim_event.event_id            <-- event_channel_damage.event_id
 dim_event.event_id            <-- event_custom_field_values.event_id
 dim_event.event_id            <-- event_access_log.event_id
 dim_channel_map(program_id, version)  links plot definitions for events

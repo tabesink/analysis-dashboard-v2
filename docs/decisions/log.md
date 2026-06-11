@@ -1235,10 +1235,10 @@ Backend confirmation enforcement remains unchanged (`CREATE NEW DATABASE`, `CONN
 **Decision:**
 
 1. **Lineage table:** `event_derived_data` stores one row per event with `ingestion_run_id`, `derived_artifact_id` (canonical CSV), `channel_map_snapshot_id`, and status fields for measurements and LTTB (`current`, `stale`, `absent`).
-2. **Data kinds:** `measurements_data_kind=full_resolution_derived` and `lttb_data_kind=plot_only` document that LTTB rows are plot-only derived data, not authoritative engineering input.
+2. **Data kinds:** `measurements_data_kind=full_resolution_canonical` and `lttb_data_kind=plot_only` document that raw measurement rows are canonical full-resolution analytical data, while LTTB rows are plot-only derived data.
 3. **Commit hook:** `DerivedDataLineageService.record_commit` runs at event commit after measurements/LTTB inserts in both direct ingest and retained-artifact reprocess paths.
 4. **Stale policy:** When the active channel-map snapshot changes, Pending events in the same program/version whose linked snapshot differs are marked `stale`. Approved/Obsolete events keep `current` status and immutable snapshot references.
-5. **Regeneration:** `save_channel_map_and_process_artifacts` already regenerates measurements/LTTB; re-commit sets status back to `current` with the new snapshot.
+5. **Regeneration:** `save_channel_map_and_process_artifacts` regenerates LTTB from canonical measurements; re-commit sets LTTB status back to `current` with the new snapshot while preserving raw measurement status.
 6. **Portability:** `event_derived_data` is excluded from load-data export/import until DB14-07 transfer package work.
 
 **Rationale:** Keeps lineage queryable at the derived-data layer without denormalizing millions of measurement rows, and limits stale marking to Pending events so historical lineage stays immutable.
@@ -1392,3 +1392,262 @@ Backend confirmation enforcement remains unchanged (`CREATE NEW DATABASE`, `CONN
 **Key files:** `DESIGN.md`, `client/src/features/database-upload/UploadOperationModal.tsx`, `client/src/features/database-scope-delete/ScopeDeleteOperationModal.tsx`, `client/src/components/blocks/dialog/scope-delete-summary-panel.tsx`, `client/src/components/upload/DatabaseOperationModal.tsx`.
 
 **Follow-up (2026-06-10):** Dialog summaries no longer repeat the header title. The header owns the state label; the summary body starts with explanatory message text and then metadata.
+
+---
+
+## DEC-087: Edit Metadata panel boundary for inline dialog (2026-06-10)
+
+**Context:** The Database Metadata Edit Dialog (DMD-20) needs the existing Edit Metadata workflow inside a modal without duplicating draft/save logic. The full-page `/database/edit` route must remain unchanged for users who prefer the side-panel workflow.
+
+**Decision:** Extract `EditMetadataPanel` as the shared boundary: it accepts an external `{ programId, version }` scope, owns metadata draft/query/save behavior, and reports selection summary + activity state upward via optional callbacks. The route wrapper retains side-panel selection and other tabs (Assign Channels, Durability Schedule).
+
+Pure draft initialization and save-enablement rules live in `features/edit-metadata/lib/` for focused unit tests.
+
+**Rationale:** One panel serves both the route and the upcoming modal (DMD-20-02). Scope is injected so the panel never depends on route-side selection UI.
+
+**Key files:** `client/src/components/edit-metadata/EditMetadataPanel.tsx`, `client/src/features/edit-metadata/lib/build-program-version-draft.ts`, `client/src/features/edit-metadata/lib/metadata-save-state.ts`, `client/src/app/database/edit/page.tsx`.
+
+---
+
+## DEC-088: Metadata edit dialog dirty-close and pending scope (2026-06-10)
+
+**Context:** DMD-20-03 requires the inline metadata dialog to avoid silently discarding dirty edits, support opening another version row while the dialog stays open, and keep save/permission behavior aligned with the full-page Edit Metadata route. No app-wide unsaved-changes primitive existed.
+
+**Decision:** `EditMetadataPanel` reports dirty state upward via `onDirtyChange` and accepts `canWrite`. `MetadataEditDialog` intercepts Radix close/Escape/overlay requests and shows a nested discard `AlertDialog` when dirty. `metadata-edit-dialog-store` queues `pendingScope` when `openMetadataEditDialog` is called while already open; the dialog auto-applies a clean pending scope or prompts before switching when dirty.
+
+**Rationale:** Keeps draft/save logic in the shared panel (DEC-087) while the modal shell owns navigation safety. Pure helpers in `features/edit-metadata/lib/` keep close/prompt copy unit-testable without DOM interaction.
+
+**Key files:** `client/src/components/edit-metadata/MetadataEditDialog.tsx`, `client/src/stores/metadata-edit-dialog-store.ts`, `client/src/features/edit-metadata/lib/metadata-dialog-close.ts`, `client/src/features/edit-metadata/lib/metadata-discard-prompt.ts`.
+
+---
+
+## DEC-089: Cross-section metadata dialog dirty-close and channel-map save refresh (2026-06-10)
+
+**Context:** DMD-21-03 extends the DMD-20-03 dialog shell with Assign Channels. Channel-map edits must participate in dirty-close and pending scope-change prompts, and successful saves must refresh Database table indicators without a manual reload.
+
+**Decision:** `isMetadataDialogDirty(metadataDirty, channelMapDirty)` combines section dirty flags for close/scope decisions. Discard prompt copy uses generic "unsaved changes" language. Channel-map saves use `saveProgramVersionChannelMap` and `invalidateQueriesAfterChannelMapSave`, which invalidates `channel-map-editor` plus the same database-data query keys used after metadata save (`DATABASE_DATA_INVALIDATION_KEYS`).
+
+**Rationale:** Reuses the established modal safety model from DEC-088 without section-specific prompt branches. Centralizing channel-map invalidation ensures Database table, Dashboard filters, and Edit Metadata workflow stay consistent after dialog saves.
+
+**Key files:** `client/src/lib/channel-map-save-cache.ts`, `client/src/features/edit-metadata/lib/channel-map-save.ts`, `client/src/features/edit-metadata/lib/metadata-dialog-close.ts`, `client/src/components/edit-metadata/AssignChannelsPanel.tsx`.
+
+---
+
+## DEC-090: Scoped channel-map YAML upload shares retained-artifact processing core (2026-06-10)
+
+**Context:** DMD-22-01 adds an Assign Channels **Upload** path for existing `channel_map.yml` / `channel_map.yaml` files on a selected program/version. The product requires the same parsing, normalization, persistence, and retained-artifact processing as manual UI save and Upload Data YAML ingestion — without a second frontend YAML parser or duplicated event-rewrite logic.
+
+**Decision:** Add `POST /api/v1/dashboard/program-version/channel-map/upload` (form: `program_id`, `version`, `channel_map` file) guarded by the same write/ownership rules as manual save. `IngestionService.upload_channel_map_yaml_and_process_artifacts` loads YAML via `ChannelMapLoader`, validates against the fixed eight-plot contract, and calls a shared `_persist_channel_map_and_process_artifacts` helper also used by `save_channel_map_and_process_artifacts`. Client upload uses `uploadProgramVersionChannelMap` and reuses `invalidateQueriesAfterChannelMapSave`. Basename helpers live in `server/utils/channel_map_file.py` and `features/edit-metadata/lib/channel-map-file.ts`.
+
+**Rationale:** One processing core keeps snapshot lineage, dim_channel_map upserts, and artifact reprocessing consistent across UI save and YAML upload. Scoped form upload mirrors the durability schedule attach pattern; server-side YAML parsing preserves normalization authority.
+
+**Key files:** `server/services/ingestion.py`, `server/routers/dashboard.py`, `client/src/features/edit-metadata/lib/channel-map-upload.ts`, `client/src/components/edit-metadata/ChannelMapUploadDialog.tsx`.
+
+---
+
+## DEC-091: Channel-map upload guardrails enforce exact single-file contract (2026-06-10)
+
+**Context:** DMD-22-02 hardens the Assign Channels upload popup into a channel-map-only correction path. The happy-path upload from DEC-090 accepted valid filenames, but guardrails needed explicit behavior for folder selections and multipart bypass attempts with duplicate `channel_map` fields.
+
+**Decision:** Keep basename validation (`channel_map.yml` / `channel_map.yaml`, case-insensitive) and make the same single-file rule authoritative on both client and server. Client selection now validates exactly one file, rejects folder uploads (`webkitRelativePath`), and surfaces inline error text without closing the popup. Backend route now binds `channel_map` as `list[UploadFile]` and rejects any request where `len(channel_map) != 1` before processing.
+
+**Rationale:** Treating multipart cardinality and filename checks as backend authority prevents bypassing UI constraints, while client-side folder and count checks keep feedback immediate and preserve the scoped dialog workflow.
+
+**Key files:** `client/src/features/edit-metadata/lib/channel-map-file.ts`, `client/src/components/edit-metadata/ChannelMapUploadDialog.tsx`, `server/routers/dashboard.py`, `tests/server/routers/test_dashboard_router.py`.
+
+---
+
+## DEC-092: Durability Schedule panel extracted for dialog reuse (2026-06-10)
+
+**Context:** DMD-23-01 completes the same transplant pattern as Edit Metadata (DMD-20) and Assign Channels (DMD-21): the full-page Durability Schedule tab owned schedule query, hydration, upload attach, inline edit, reset, save, and dirty tracking inline in the route.
+
+**Decision:** Introduce `DurabilitySchedulePanel` with `scope`, `canWrite`, optional `showUploadAffordance`, and `onDirtyChange`. Move save/attach helpers to `durability-schedule-save.ts` and `durability-schedule-upload.ts`; dirty detection to `durability-schedule-draft.ts`. Full-page route passes `showUploadAffordance={false}` and keeps side-panel upload; dialog integration (DMD-23-02) will use default inline upload.
+
+**Rationale:** One panel owns the schedule correction loop for both entry points without duplicating hydration or save payload logic. Upload placement differs by shell (side panel vs dialog content) but shares the same attach contract and query invalidation.
+
+**Key files:** `client/src/components/edit-metadata/DurabilitySchedulePanel.tsx`, `client/src/features/edit-metadata/lib/durability-schedule-save.ts`, `client/src/features/edit-metadata/lib/durability-schedule-upload.ts`, `client/src/app/database/edit/page.tsx`.
+
+---
+
+## DEC-093: Three-section metadata dialog dirty-close includes Durability Schedule (2026-06-10)
+
+**Context:** DMD-23-02 wired `DurabilitySchedulePanel` into the metadata popup with `onDirtyChange`, but `isMetadataDialogDirty` still combined only metadata and channel-map flags. Schedule edits could be lost silently on close, Escape, outside click, or pending scope change.
+
+**Decision:** Extend `isMetadataDialogDirty(metadataDirty, channelMapDirty, scheduleDirty)` for all close/scope-change decisions. Confirming discard on scope change clears the schedule dirty flag alongside metadata and channel-map flags. Section switching remains unprompted; mounted panels retain drafts. Schedule save/upload continue to invalidate `program-version-schedule` and hydrate the returned baseline as clean state. Read-only users cannot upload from the no-schedule empty state.
+
+**Rationale:** Matches the DMD-21-03 two-section pattern and completes production readiness for the three-route popup without divergent close behavior from the full-page workflow.
+
+**Key files:** `client/src/features/edit-metadata/lib/metadata-dialog-close.ts`, `client/src/components/edit-metadata/MetadataEditDialog.tsx`, `client/src/components/edit-metadata/DurabilitySchedulePanel.tsx`.
+
+---
+
+## DEC-094: Derived-data tasks extend upload_tasks instead of a new job table (2026-06-11)
+
+**Context:** UP-24-01 requires async channel reprocess progress for Assign Channels save and YAML upload without introducing a heavyweight job framework.
+
+**Decision:** Extend `upload_tasks` with additive columns (`task_kind`, `sub_phase`, `progress_message`, `scope_json`). Public derived kinds are `channel_reprocess` and `damage_calculation` (latter deferred to UP-24-03). Channel-map routes return `{ task_id, task_kind, reused_existing_task }`; polling uses `GET /api/v1/dashboard/derived-data/task/{task_id}` with creator scoping. Only one active derived-data task per program/version; a second start returns the existing task id. Channel reprocess persists the map synchronously, then reprocesses retained artifacts in a background thread using the extracted `_process_retained_artifacts` helper. Progress updates run outside artifact write transactions to avoid nested DuckDB transactions.
+
+**Rationale:** Reuses proven upload-task storage and polling patterns while keeping the schema lean. Client progress modal wiring remains UP-24-02.
+
+**Key files:** `server/services/ingestion.py`, `server/storage/database.py`, `server/routers/dashboard.py`, `server/models/derived_data_task.py`, `tests/server/services/test_channel_reprocess_task.py`.
+
+---
+
+## DEC-095: Channel reprocess client progress uses scoped store + close-only modal (2026-06-11)
+
+**Context:** UP-24-02 replaces toast-only Assign Channels feedback with upload-style progress for the async `channel_reprocess` task from UP-24-01.
+
+**Decision:** Add a scoped `channel-reprocess-store` that tracks one active task per program/version, polls `GET /api/v1/dashboard/derived-data/task/{task_id}` in the background, and drives a reusable `DerivedDataOperationModal`. Closing the modal only sets `modalOpen=false`; polling continues until completion. While running with the modal closed, `MetadataEditDialog` shows a scoped inline banner with Reopen progress. Starting save/upload while a task is already active reopens the existing poll (no duplicate polling). Progress mapping uses coarse phase bands (validating / generating) plus server `progress_message` verbatim. Query invalidation runs on task completion via the existing channel-map save cache helper.
+
+**Rationale:** Mirrors the folder-upload modal pattern without cancel semantics; scoped store lets Assign Channels and the dialog share state without prop drilling.
+
+**Key files:** `client/src/stores/channel-reprocess-store.ts`, `client/src/features/edit-metadata/DerivedDataOperationModal.tsx`, `client/src/components/edit-metadata/MetadataEditDialog.tsx`, `client/src/lib/api/derived-data.ts`.
+
+---
+
+## DEC-096: Schedule-driven damage uses latest-result cache + async task (2026-06-11)
+
+**Context:** UP-24-03 ties load-history damage calculation to durability schedule upload/save while keeping the implementation lean.
+
+**Decision:** Persist only the latest row per event/channel in `event_channel_damage` (status: current, stale, error). Schedule attach hydrates editable `event_rows` server-side before attempting damage. Schedule save/upload responses add either `damage_task_id` or `damage_prerequisite_report`. Prerequisites missing/stale derived data do not create task rows. Successful triggers start a background `damage_calculation` task reusing upload-task storage; validation failures return transient `failure_report` JSON in task result. Scheduled damage = base × repeats × weight × multiplier. Channel reprocess and schedule edits mark prior current rows stale with machine-readable reasons.
+
+**Rationale:** Keeps damage tied to the active schedule without an audit ledger or separate job framework; stale values remain visible until a successful recalculation.
+
+**Key files:** `server/services/damage_calculation_task.py`, `server/services/schedule_damage_validation.py`, `server/schema.yaml` (`event_channel_damage`), `server/routers/dashboard.py`, `tests/server/services/test_damage_calculation_task.py`.
+
+---
+
+## DEC-097: Schedule damage client UX uses scoped store + repair loop (2026-06-11)
+
+**Context:** UP-24-04 wires the durability schedule UI to the schedule-triggered damage contract from UP-24-03.
+
+**Decision:** Add `damage-calculation-store` parallel to channel reprocess. Schedule save/upload call `applyScheduleDamageResponse`, which starts polling when `damage_task_id` is present or stores `damage_prerequisite_report` inline without creating a task. `DerivedDataOperationModal` supports `damage_calculation` phases (validating schedule rows, calculating load history damage) and exposes an **Open schedule editor** action on validation failure. `DurabilitySchedulePanel` renders a compact report summary above the table and highlights affected editable fields; saving corrected rows clears the prior report and automatically retries damage calculation. Read-only users see report context but cannot save to retry.
+
+**Rationale:** Reuses the proven derived-data modal/banner pattern while keeping the schedule repair loop short and field-targeted.
+
+**Key files:** `client/src/stores/damage-calculation-store.ts`, `client/src/features/edit-metadata/lib/apply-schedule-damage-response.ts`, `client/src/components/edit-metadata/DurabilitySchedulePanel.tsx`, `client/src/components/edit-metadata/MetadataEditDialog.tsx`.
+
+---
+
+## DEC-098: Derived-data operation modals mount on Database page shell (2026-06-11)
+
+**Context:** AC-25-01 closes the gap where channel reprocess progress was rendered inside `MetadataEditDialog`, sharing `z-50` with the editor and unmounting when the dialog closed.
+
+**Decision:** Host channel reprocess and damage calculation `DerivedDataOperationModal` instances in `DatabaseDerivedDataOperationModals` on the Database page shell next to upload/scope-delete modals. Keep scoped store wiring and inline banners in Edit Metadata. Apply shared shell operation modal layering (`z-[70]`) via `shell-operation-modal.ts` and `AlertDialog.containerClassName`. Damage calculation failure summary opens the schedule editor through `requestMetadataEditDialogSection`.
+
+**Rationale:** Matches the proven upload operation modal lifecycle; progress stays visible above Edit Metadata and survives editor close while the user remains on the Database page.
+
+**Key files:** `client/src/features/edit-metadata/DatabaseDerivedDataOperationModals.tsx`, `client/src/app/database/page.tsx`, `client/src/lib/shell-operation-modal.ts`, `client/src/components/edit-metadata/MetadataEditDialog.tsx`.
+
+---
+
+## DEC-099: Assign Channels save/upload use modal-only in-flight feedback (2026-06-11)
+
+**Context:** AC-25-02 completes the UP-24 gap where Assign Channels still showed a loading toast that dismissed before background reprocess finished.
+
+**Decision:** Remove `toast.loading` / `toast.dismiss` from save and upload success paths. Extract `assign-channels-reprocess-flow.ts` to start the API call and immediately invoke `trackChannelReprocessTask` so the shell-mounted derived-data modal opens with no transitional toast. Keep `toast.error` for validation and start failures; keep reset/restore success toasts.
+
+**Rationale:** The progress modal is the canonical long-running operation surface; loading toasts implied completion too early and competed with modal feedback.
+
+**Key files:** `client/src/features/edit-metadata/lib/assign-channels-reprocess-flow.ts`, `client/src/components/edit-metadata/AssignChannelsPanel.tsx`.
+
+---
+
+## DEC-100: Database-page channel reprocess background banner (2026-06-11)
+
+**Context:** AC-25-03 closes the visibility gap when users dismiss the progress modal and close Edit Metadata while channel reprocess still runs.
+
+**Decision:** Add `DatabaseChannelReprocessBanners` on the Database page shell, driven by `selectDatabaseChannelReprocessBanners` over existing channel reprocess store state and metadata edit dialog scope. Show banner only when `status === running`, `modalOpen === false`, and Edit Metadata is not open for the same program/version. Reopen calls `reopenChannelReprocessModal`; no new polling or task types.
+
+**Rationale:** Keeps background work visible on the Database page without a global task center; defers to inline Edit Metadata banner when the editor is open for the active scope.
+
+**Key files:** `client/src/features/edit-metadata/DatabaseChannelReprocessBanners.tsx`, `client/src/features/edit-metadata/lib/database-channel-reprocess-banner.ts`, `client/src/app/database/page.tsx`.
+
+---
+
+## DEC-101: Assign Channels preserves canonical raw measurements (2026-06-11)
+
+**Context:** Assign Channels reprocess previously reparsed retained artifacts, hard-deleted each event, and rewrote both `measurements_raw` and `measurements_lttb`. That made full-resolution raw measurements depend on editable plot mappings, even though raw load histories are the analytical source of truth for damage calculation.
+
+**Decision:** Treat `measurements_raw` as canonical full-resolution analytical data written by upload/canonicalization, storing all numeric signal columns except index/time. Assign Channels save and channel-map YAML upload now preserve `measurements_raw`, regenerate only `measurements_lttb` from canonical raw rows, and update channel-map lineage. Channel-map snapshot changes stale LTTB only; raw measurement status remains current unless raw rows are genuinely missing. Existing incomplete legacy data should be repaired by a one-time canonical-artifact backfill rather than by normal Assign Channels reprocess.
+
+**Rationale:** Plot mapping edits should not rewrite or narrow the raw source used by downstream damage calculation. Generating LTTB from `measurements_raw` enforces the source-of-truth boundary and avoids retained-artifact corruption causing false channel-reprocess failures after canonical raw already exists.
+
+**Key files:** `server/services/etl/transformer.py`, `server/services/ingestion.py`, `server/services/derived_data_lineage.py`, `server/storage/database.py`, `client/src/features/edit-metadata/lib/derived-task-progress.ts`, `docs/architecture/derived-data-upload-pipeline.md`.
+
+---
+
+## DEC-102: Post-upload precompute orchestrator (2026-06-11)
+
+**Context:** PPU-27 closes the workflow-order gap where a durability schedule saved before channel reprocess finishes never triggers damage calculation once channel-derived prerequisites become current.
+
+**Decision:** Add `server/services/post_upload_precompute.py` with a deterministic decision function invoked after `channel_reprocess` task completion. Decisions are `no_op`, `blocked`, `start_damage_calculation`, or `reuse_active_task`. Reuse existing `damage_calculation` task orchestration; do not add a new public task kind. After channel completion, only reuse active `damage_calculation` tasks (not in-flight `channel_reprocess` rows) to avoid read-after-write races with the just-completed task row.
+
+**Rationale:** Keeps precompute rules testable in one module and reuses UP-24 task storage/polling. Schedule-first and channel-first workflows converge through the same decision path.
+
+**Key files:** `server/services/post_upload_precompute.py`, `server/services/ingestion.py`, `server/services/damage_calculation_task.py`, `tests/server/services/test_post_upload_precompute.py`.
+
+---
+
+## DEC-103: Schedule-only scheduled damage rescale service (2026-06-11)
+
+**Context:** PPU-27-03 needs a fast path when users edit only schedule scaling inputs (repeats, weight, multiplier) and persisted base damage remains valid.
+
+**Decision:** Add `server/services/schedule_damage_rescale.py` with eligibility checks and synchronous rescale updates. The post-upload precompute orchestrator selects `rescale_scheduled_damage` after schedule-row save when event matching is unchanged, every scheduled event/channel row has reusable base damage, and no row is in error or stale for non-schedule reasons. Rescale updates scheduled damage and row metadata without rerunning py-fatigue; all other cases fall back to `damage_calculation`.
+
+**Rationale:** Separates notebook model layers (single-pass base damage vs schedule scaling) behind a small testable interface while preserving stale-state safety.
+
+**Key files:** `server/services/schedule_damage_rescale.py`, `server/services/post_upload_precompute.py`, `server/routers/dashboard.py`, `tests/server/services/test_schedule_damage_rescale.py`.
+
+---
+
+## DEC-104: Per-event channel resolver deep modules (2026-06-11)
+
+**Context:** IDM-28 fixes Inspect Damage blanks when events in one program/version use different RSP title conventions at the same column indices. Upload-time plot extraction already uses column indices per file; damage and channel reprocess still join on version-wide title strings frozen from the first artifact.
+
+**Decision:** Extract two small server modules with no database access in the pure resolver core:
+
+1. `per_event_channel_resolver` — given `x_col`/`y_col` and an event header row, return resolved channel names/units or structured errors (`missing_headers`, `column_out_of_range`).
+2. `event_header_provider` — load header/units for an `event_id` from `event_previews` first, then `ingestion_artifacts.preview_json` `#TITLES`/`#UNITS` fallback via `get_ingestion_artifact_for_event()`.
+
+Keep legacy generic `col_N` pattern matching in `damage_channels.py` as a separate fallback helper; do not make it the primary resolution path.
+
+**Rationale:** One canonical lookup rule for derived-data readers without coupling damage/reprocess to ingestion service internals; fast unit tests without py-fatigue.
+
+**Key files:** `server/services/per_event_channel_resolver.py`, `server/services/event_header_provider.py`, `server/storage/database.py`, `tests/server/services/test_per_event_channel_resolver.py`, `tests/server/services/test_event_header_provider.py`.
+
+---
+
+## DEC-105: Index-based channel map persistence (2026-06-11)
+
+**Context:** IDM-28-02. Assign Channels save and YAML upload called `_channel_map_with_preview_headers()`, freezing the first retained artifact's Moog-style titles into `dim_channel_map` as the version-wide lookup key. Mixed export conventions in one program/version then failed damage and reprocess joins.
+
+**Decision:** Persist `col_{x_col}` / `col_{y_col}` in `dim_channel_map` at save/upload time. Drop preview-header title resolution from save paths; keep first-artifact preview for editor column-count validation and human-readable UI preview only. YAML `validate_loaded_channel_map()` always normalizes lookup fields to `col_N`. Channel reprocess resolves generic map entries to per-event titles at read time via `EventHeaderProvider` + `resolve_plot_channels_from_headers()` so save does not leave LTTB regeneration empty.
+
+**Rationale:** Column index is the version-wide contract; per-event titles are resolved at compute time (DEC-104). Snapshot normalization already stored index-based plot definitions—save paths now match.
+
+**Key files:** `server/services/ingestion.py`, `tests/server/services/test_channel_map_index_persistence.py`.
+
+---
+
+## DEC-106 — Partial damage repair policy for mixed cohorts (IDM-28-05)
+
+**Date:** 2026-06-11
+
+**Decision:** Inspect Damage backfill and channel-reprocess follow-up treat a scope as repairable when any scheduled event lacks complete `current` damage due to errors or a mixed `current`/`error` population. Stale-only scopes remain inspectable without automatic recalculation.
+
+**Rationale:** Production `002/v02` had 18 events with `current` rows and 39 with `error` rows; blocking backfill on `persisted_damage_exists` prevented one-action recovery after resolver fix.
+
+**Key files:** `server/services/scope_damage_repair.py`, `server/services/post_upload_precompute.py`, `server/services/damage_inspect.py`.
+
+---
+
+## DEC-107 — Shared client task workflow adapters (UPF-29-01)
+
+**Date:** 2026-06-11
+
+**Decision:** Keep the existing server task model, but consolidate repeated client workflow interfaces. Upload and derived-data polling use `task-polling.ts`; damage calculation start/prerequisite handling uses `apply-damage-task-response.ts`; channel reprocess and damage calculation state use `derived-task-scope-store.ts`.
+
+**Rationale:** The upload-to-Inspect-Damage flow had accumulated duplicate polling loops, parallel task stores, and repeated damage-task response handling. Consolidating these client adapters improves locality without introducing a global background task center, a new public task kind, or a server-side queue.
+
+**Key files:** `client/src/lib/api/task-polling.ts`, `client/src/features/edit-metadata/lib/apply-damage-task-response.ts`, `client/src/stores/derived-task-scope-store.ts`, `client/src/features/database-upload/upload-completion-result.ts`.

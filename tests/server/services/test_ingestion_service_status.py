@@ -8,6 +8,10 @@ from server.routers.dashboard import get_events as dashboard_get_events
 from server.services.etl import RSPConversionResult
 from server.services.ingestion import FIXED_CHANNEL_MAP_PLOTS, IngestionService
 from server.services.query import QueryService
+from tests.server.services.test_channel_map_snapshot import (
+    _equivalent_yaml_bytes,
+    _fixed_ui_channel_map,
+)
 
 
 def _make_ingestion_service(test_database, test_cache, test_settings) -> IngestionService:
@@ -31,6 +35,21 @@ Huge,Double,Float,Float,Float
 2,0.001,101.0,201.0,301.0
 3,0.002,102.0,202.0,302.0
 """
+
+
+def _channel_map_plot_columns(channel_map_rows: list[dict]) -> list[tuple[str, int, int]]:
+    return [
+        (row["plot_key"], row["x_col"], row["y_col"])
+        for row in sorted(channel_map_rows, key=lambda row: row["plot_key"])
+    ]
+
+
+def _snapshot_plot_columns(snapshot_json: str) -> list[tuple[str, int, int]]:
+    payload = json.loads(snapshot_json)
+    return [
+        (plot["plot_key"], plot["x_col"], plot["y_col"])
+        for plot in payload["plots"]
+    ]
 
 
 def test_ingest_forces_pending_for_non_admin(
@@ -239,7 +258,7 @@ def test_ingest_converts_rsp_before_csv_pipeline(
 ) -> None:
     service = _make_ingestion_service(test_database, test_cache, test_settings)
     uploader = test_database.create_user("rsp_uploader")
-    phases: list[str] = []
+    task_updates: list[dict[str, object]] = []
 
     class StubRSPConverter:
         def convert(self, filename: str, content: bytes) -> RSPConversionResult:
@@ -263,16 +282,69 @@ def test_ingest_converts_rsp_before_csv_pipeline(
         is_admin=False,
         uploaded_by_user_id=uploader["id"],
         metadata={"job_number": "JOB-RSP", "work_order": "WO-RSP"},
-        on_phase_changed=phases.append,
+        on_task_update=lambda **fields: task_updates.append(fields),
     )
 
     assert result.success is True
     assert result.event_ids == ["event_rsp"]
-    assert phases == ["converting", "validating"]
+    assert any(
+        update.get("phase") == "converting"
+        and update.get("progress_message") == "Converting RSP 1/1: event_rsp.rsp"
+        for update in task_updates
+    )
+    assert any(
+        update.get("phase") == "validating"
+        and update.get("progress_message") == "Validating 1/1: event_rsp.rsp"
+        for update in task_updates
+    )
 
     stored_event = test_database.get_event("event_rsp")
     assert stored_event is not None
     assert stored_event.get("source_file") == "event_rsp.rsp"
+
+
+def test_ingest_emits_per_file_rsp_conversion_progress(
+    test_database, test_cache, test_settings, sample_csv_content, sample_channel_map_content
+) -> None:
+    service = _make_ingestion_service(test_database, test_cache, test_settings)
+    uploader = test_database.create_user("rsp_progress_uploader")
+    task_updates: list[dict[str, object]] = []
+
+    class StubRSPConverter:
+        def convert(self, filename: str, content: bytes) -> RSPConversionResult:
+            return RSPConversionResult(
+                filename=f"{Path(filename).stem}.csv",
+                content=sample_csv_content,
+                row_count=10,
+                channel_count=4,
+            )
+
+    service.rsp_converter = StubRSPConverter()
+
+    result = service.ingest(
+        files=[
+            ("alpha.rsp", b"raw-a"),
+            ("beta.rsp", b"raw-b"),
+        ],
+        program_id="P-RSP-PROGRESS",
+        version="V1",
+        channel_map_content=sample_channel_map_content,
+        status_value="Pending",
+        is_admin=False,
+        uploaded_by_user_id=uploader["id"],
+        on_task_update=lambda **fields: task_updates.append(fields),
+    )
+
+    assert result.success is True
+    conversion_messages = [
+        update.get("progress_message")
+        for update in task_updates
+        if update.get("phase") == "converting"
+    ]
+    assert conversion_messages == [
+        "Converting RSP 1/2: alpha.rsp",
+        "Converting RSP 2/2: beta.rsp",
+    ]
 
 
 def test_ingest_rejects_mixed_csv_and_rsp(
@@ -330,6 +402,107 @@ def test_ingest_without_channel_map_retains_pending_artifact(
     assert artifacts[0]["status"] == "pending"
     assert artifacts[0]["source_file"] == "event_pending.csv"
     assert artifacts[0]["event_id"] == "event_pending"
+
+    raw_rows = test_database.read_connection.execute(
+        "SELECT COUNT(*) FROM measurements_raw WHERE event_id = ?",
+        ["event_pending"],
+    ).fetchone()
+    assert raw_rows is not None
+    assert int(raw_rows[0]) > 0
+
+    derived = test_database.get_event_derived_data("event_pending")
+    assert derived is not None
+    assert derived["measurements_status"] == "current"
+    assert derived["lttb_status"] == "absent"
+
+
+def test_uploading_channel_map_yaml_processes_pending_artifact(
+    test_database, test_cache, test_settings
+) -> None:
+    service = _make_ingestion_service(test_database, test_cache, test_settings)
+    uploader = test_database.create_user("channel_map_yaml_uploader")
+    service.ingest(
+        files=[("event_pending_yaml.csv", _csv_with_detected_damage_channels())],
+        program_id="P-PENDING-YAML",
+        version="V1",
+        channel_map_content=None,
+        status_value="Pending",
+        is_admin=False,
+        uploaded_by_user_id=uploader["id"],
+        metadata={"job_number": "JOB-YAML", "work_order": "WO-YAML"},
+    )
+
+    result = service.upload_channel_map_yaml_and_process_artifacts(
+        program_id="P-PENDING-YAML",
+        version="V1",
+        channel_map_content=_equivalent_yaml_bytes(_fixed_ui_channel_map()),
+        user_id=uploader["id"],
+    )
+
+    assert result["processed_count"] == 1
+    assert result["failed_count"] == 0
+    artifacts = test_database.list_ingestion_artifacts(
+        program_id="P-PENDING-YAML",
+        version="V1",
+    )
+    assert artifacts[0]["status"] == "processed"
+    channel_map = test_database.get_channel_map("P-PENDING-YAML", "V1")
+    assert len(channel_map) == len(FIXED_CHANNEL_MAP_PLOTS)
+
+
+def test_scoped_yaml_upload_matches_ingest_yaml_plot_mappings(
+    test_database, test_cache, test_settings
+) -> None:
+    service = _make_ingestion_service(test_database, test_cache, test_settings)
+    uploader = test_database.create_user("channel_map_parity_uploader")
+    channel_map = _fixed_ui_channel_map()
+    yaml_bytes = _equivalent_yaml_bytes(channel_map)
+    csv_bytes = _csv_with_detected_damage_channels()
+
+    ingest_result = service.ingest(
+        files=[("ingest_yaml.csv", csv_bytes)],
+        program_id="P-PARITY-INGEST",
+        version="V1",
+        channel_map_content=yaml_bytes,
+        status_value="Pending",
+        is_admin=False,
+        uploaded_by_user_id=uploader["id"],
+        metadata={"job_number": "JOB-PARITY-INGEST", "work_order": "WO-PARITY-INGEST"},
+    )
+    assert ingest_result.success is True
+    ingest_map = test_database.get_channel_map("P-PARITY-INGEST", "V1")
+    ingest_events = test_database.get_events(program_id="P-PARITY-INGEST", version="V1")
+    ingest_snapshot = test_database.get_channel_map_snapshot_for_event(ingest_events[0]["event_id"])
+    assert ingest_snapshot is not None
+
+    service.ingest(
+        files=[("scoped_upload.csv", csv_bytes)],
+        program_id="P-PARITY-SCOPED",
+        version="V1",
+        channel_map_content=None,
+        status_value="Pending",
+        is_admin=False,
+        uploaded_by_user_id=uploader["id"],
+        metadata={"job_number": "JOB-PARITY-SCOPED", "work_order": "WO-PARITY-SCOPED"},
+    )
+    upload_result = service.upload_channel_map_yaml_and_process_artifacts(
+        program_id="P-PARITY-SCOPED",
+        version="V1",
+        channel_map_content=yaml_bytes,
+        user_id=uploader["id"],
+    )
+
+    assert upload_result["processed_count"] == 1
+    assert upload_result["failed_count"] == 0
+    scoped_map = test_database.get_channel_map("P-PARITY-SCOPED", "V1")
+    scoped_events = test_database.get_events(program_id="P-PARITY-SCOPED", version="V1")
+    scoped_snapshot = test_database.get_channel_map_snapshot_for_event(scoped_events[0]["event_id"])
+    assert scoped_snapshot is not None
+
+    assert _channel_map_plot_columns(ingest_map) == _channel_map_plot_columns(scoped_map)
+    assert _snapshot_plot_columns(ingest_snapshot["snapshot_json"]) == _snapshot_plot_columns(
+        scoped_snapshot["snapshot_json"]
+    )
 
 
 def test_saving_channel_map_processes_pending_artifact(

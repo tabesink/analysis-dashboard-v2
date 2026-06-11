@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from server.services.auth import AuthService
     from server.services.custom_fields import CustomFieldService
+    from server.services.damage_calculation_task import DamageCalculationTaskService
     from server.services.durability_schedule import DurabilityScheduleStorageService
     from server.services.export import ExportService
     from server.services.ingestion import IngestionService
@@ -86,6 +87,20 @@ def get_durability_schedule_storage(
     from server.services.durability_schedule import DurabilityScheduleStorageService
 
     return DurabilityScheduleStorageService(settings.data_root, db)
+
+
+def get_damage_calculation_task_service(
+    db: Annotated["UnifiedStore", Depends(get_database)],
+    cache: Annotated["SimpleCache", Depends(get_cache)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    identity_db: Annotated["IdentityStore", Depends(get_identity_store)],
+):
+    """Get schedule-driven damage calculation task service."""
+    from server.services.damage_calculation_task import DamageCalculationTaskService
+    from server.services.query import QueryService
+
+    query_service = QueryService(db, cache, settings, identity_db)
+    return DamageCalculationTaskService(db, query_service)
 
 
 def get_export_service(
@@ -240,6 +255,9 @@ QueryServiceDep = Annotated["QueryService", Depends(get_query_service)]
 IngestionServiceDep = Annotated["IngestionService", Depends(get_ingestion_service)]
 DurabilityScheduleStorageDep = Annotated[
     "DurabilityScheduleStorageService", Depends(get_durability_schedule_storage)
+]
+DamageCalculationTaskServiceDep = Annotated[
+    "DamageCalculationTaskService", Depends(get_damage_calculation_task_service)
 ]
 SessionManagerDep = Annotated["SessionManager", Depends(get_session_manager)]
 AuthServiceDep = Annotated["AuthService", Depends(get_auth_service)]

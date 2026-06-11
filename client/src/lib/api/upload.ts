@@ -4,6 +4,10 @@
  */
 
 import { APIError, get, del, post, postFormDataWithProgress, getApiBaseUrl } from './client';
+import {
+  waitForTaskStatus,
+  type TaskPollConnectionState,
+} from '@/lib/api/task-polling';
 import type {
   UploadResponse,
   UploadTaskStartResponse,
@@ -52,18 +56,11 @@ const RETRYABLE_POLL_STATUSES = new Set([502, 503, 504]);
 const TASK_POLL_RETRY_WINDOW_MS = DATA_UPLOAD_TIMEOUT_MS;
 const TASK_POLL_MAX_BACKOFF_MS = 30_000;
 
-export interface UploadTaskPollConnectionState {
-  connectionLost: boolean;
-  message?: string;
-}
+export type UploadTaskPollConnectionState = TaskPollConnectionState;
 
 interface RetryablePollError {
   retryable: boolean;
   message: string;
-}
-
-async function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function classifyUploadTaskPollError(error: unknown): RetryablePollError {
@@ -95,11 +92,6 @@ function classifyUploadTaskPollError(error: unknown): RetryablePollError {
     retryable: false,
     message: error instanceof Error ? error.message : 'Failed to poll upload task status',
   };
-}
-
-function nextPollBackoff(previousMs: number): number {
-  if (previousMs <= 0) return POLL_MS;
-  return Math.min(previousMs * 2, TASK_POLL_MAX_BACKOFF_MS);
 }
 
 export const uploadApi = {
@@ -189,47 +181,23 @@ export const uploadApi = {
     onUpdate?: (event: UploadTaskEvent) => void,
     onConnectionStateChange?: (state: UploadTaskPollConnectionState) => void,
   ): Promise<UploadTaskEvent> => {
-    const retryStartedAt = { current: 0 };
-    let backoffMs = 0;
-
-    for (;;) {
-      try {
+    return waitForTaskStatus({
+      fetchStatus: async () => {
         const event = await uploadApi.getUploadTaskStatus(taskId);
-        retryStartedAt.current = 0;
-        backoffMs = 0;
-        onConnectionStateChange?.({ connectionLost: false });
-        onUpdate?.(event);
         if (event.status === 'failed') {
           throw new Error(event.error || 'Upload failed');
         }
-        if (event.status === 'completed') {
-          return event;
-        }
-        await sleep(POLL_MS);
-      } catch (error) {
-        const classified = classifyUploadTaskPollError(error);
-        if (!classified.retryable) {
-          throw error instanceof Error ? error : new Error(classified.message);
-        }
-
-        const now = Date.now();
-        if (retryStartedAt.current === 0) {
-          retryStartedAt.current = now;
-        }
-        if (now - retryStartedAt.current > TASK_POLL_RETRY_WINDOW_MS) {
-          throw new Error(
-            'Lost contact with the server during upload. Check server logs before retrying.',
-          );
-        }
-
-        onConnectionStateChange?.({
-          connectionLost: true,
-          message: classified.message,
-        });
-        backoffMs = nextPollBackoff(backoffMs);
-        await sleep(backoffMs);
-      }
-    }
+        return event;
+      },
+      isTerminal: (event) => event.status === 'completed',
+      onUpdate,
+      onConnectionStateChange,
+      pollMs: POLL_MS,
+      retryWindowMs: TASK_POLL_RETRY_WINDOW_MS,
+      retryMaxBackoffMs: TASK_POLL_MAX_BACKOFF_MS,
+      classifyError: classifyUploadTaskPollError,
+      timeoutMessage: 'Lost contact with the server during upload. Check server logs before retrying.',
+    });
   },
 
   /**

@@ -17,6 +17,16 @@ export interface DurabilityScheduleRow {
   preload: number | null;
 }
 
+const PLACEHOLDER_ROW_ID_PREFIX = 'schedule-placeholder::';
+
+function placeholderRowId(pattern: string, scheduleSequence: number): string {
+  return `${PLACEHOLDER_ROW_ID_PREFIX}${scheduleSequence}::${pattern}`;
+}
+
+function isPlaceholderRowId(rowId: string): boolean {
+  return rowId.startsWith(PLACEHOLDER_ROW_ID_PREFIX);
+}
+
 interface TokenStats {
   fileCount: number;
   firstPosition: number;
@@ -43,8 +53,9 @@ export function barePatternFromDisplay(pattern: string): string {
 
 export function rowsFromSavedEventRows(
   eventRows: DurabilityScheduleEventRow[],
+  entries: DurabilityScheduleEntry[] = [],
 ): DurabilityScheduleRow[] {
-  return eventRows.map((row) => ({
+  const rows = eventRows.map((row) => ({
     id: row.event_id,
     rspFileName: row.rsp_file_name,
     rspEventName: row.rsp_event_name,
@@ -54,18 +65,21 @@ export function rowsFromSavedEventRows(
     repeats: row.repeats,
     preload: null,
   }));
+  return addUnmatchedPatternPlaceholderRows(rows, entries);
 }
 
 export function rowsToSavePayload(rows: DurabilityScheduleRow[]): DurabilityScheduleEventRow[] {
-  return rows.map((row) => ({
-    event_id: row.id,
-    rsp_file_name: row.rspFileName,
-    rsp_event_name: row.rspEventName,
-    pattern: barePatternFromDisplay(row.schedulePattern),
-    repeats: row.repeats,
-    weight: row.weight,
-    schedule_sequence: row.scheduleSequence,
-  }));
+  return rows
+    .filter((row) => !isPlaceholderRowId(row.id))
+    .map((row) => ({
+      event_id: row.id,
+      rsp_file_name: row.rspFileName,
+      rsp_event_name: row.rspEventName,
+      pattern: barePatternFromDisplay(row.schedulePattern),
+      repeats: row.repeats,
+      weight: row.weight,
+      schedule_sequence: row.scheduleSequence,
+    }));
 }
 
 export function discoverEventDelimiter(fileNames: string[]): string | null {
@@ -143,7 +157,7 @@ export function buildDurabilityScheduleRows(
   }));
   const patterns = entries.map((entry) => entry.pattern);
 
-  return events
+  const rows = events
     .filter((event) => Boolean(event.source_file?.trim()))
     .map((event) => {
       const sourceFile = event.source_file!.trim();
@@ -161,13 +175,45 @@ export function buildDurabilityScheduleRows(
         repeats: match?.repeats ?? null,
         preload: null,
       };
-    })
-    .sort((left, right) => {
-      const leftSequence = left.scheduleSequence ?? Number.MAX_SAFE_INTEGER;
-      const rightSequence = right.scheduleSequence ?? Number.MAX_SAFE_INTEGER;
-      if (leftSequence !== rightSequence) {
-        return leftSequence - rightSequence;
-      }
-      return left.rspFileName.localeCompare(right.rspFileName);
     });
+  return addUnmatchedPatternPlaceholderRows(rows, entries);
+}
+
+function addUnmatchedPatternPlaceholderRows(
+  rows: DurabilityScheduleRow[],
+  entries: DurabilityScheduleEntry[],
+): DurabilityScheduleRow[] {
+  const matchedPatterns = new Set(
+    rows
+      .map((row) => barePatternFromDisplay(row.schedulePattern).trim())
+      .filter((pattern) => pattern.length > 0),
+  );
+
+  const placeholderRows = entries
+    .map((entry, index): DurabilityScheduleRow | null => {
+      const pattern = entry.pattern.trim();
+      if (!pattern || matchedPatterns.has(pattern)) {
+        return null;
+      }
+      return {
+        id: placeholderRowId(pattern, index + 1),
+        rspFileName: '-',
+        rspEventName: '-',
+        schedulePattern: formatSchedulePattern(pattern),
+        scheduleSequence: index + 1,
+        weight: entry.weight,
+        repeats: entry.repeats,
+        preload: null,
+      };
+    })
+    .filter((row): row is DurabilityScheduleRow => row !== null);
+
+  return [...rows, ...placeholderRows].sort((left, right) => {
+    const leftSequence = left.scheduleSequence ?? Number.MAX_SAFE_INTEGER;
+    const rightSequence = right.scheduleSequence ?? Number.MAX_SAFE_INTEGER;
+    if (leftSequence !== rightSequence) {
+      return leftSequence - rightSequence;
+    }
+    return left.rspFileName.localeCompare(right.rspFileName);
+  });
 }

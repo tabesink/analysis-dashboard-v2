@@ -55,6 +55,7 @@ export interface UploadTaskEvent {
   completed_events: number;
   total_events: number;
   current_event?: string;
+  progress_message?: string | null;
   error?: string;
   result?: UploadResponse;
 }

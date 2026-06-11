@@ -422,6 +422,135 @@ Source: `docs/brainstorm/19_durability_sch_impl/`.
 
 ---
 
+## Phase 20: Database Metadata Edit Dialog (IN PROGRESS)
+
+**Objective:** Inline metadata edit from the Database table via a settings-style modal, reusing the existing Edit Metadata workflow.
+
+Source: `docs/brainstorm/20_database_metadata_edit_dialogue/`.
+
+| Task ID | Task | Status | Key Files | Details |
+|---------|------|--------|-----------|---------|
+| DMD-20-01 | Reusable scoped Edit Metadata panel | DONE (2026-06-10) | `client/src/components/edit-metadata/EditMetadataPanel.tsx`, `client/src/features/edit-metadata/lib/*`, `client/src/app/database/edit/page.tsx` | Extract panel from route; preserve full-page behavior. See `docs/tasks/DMD-20-01.md`, DEC-087. |
+| DMD-20-02 | Database table pencil + dialog | DONE (2026-06-10) | `client/src/components/edit-metadata/MetadataEditDialog.tsx`, `client/src/components/upload/DatabaseEventTree.tsx`, `client/src/stores/metadata-edit-dialog-store.ts` | Version-row pencil opens settings-style modal with scoped `EditMetadataPanel`. See `docs/tasks/DMD-20-02.md`. |
+| DMD-20-03 | Permissions, dirty-close, a11y polish | DONE (2026-06-10) | `client/src/components/edit-metadata/MetadataEditDialog.tsx`, `client/src/features/edit-metadata/lib/metadata-dialog-close.ts`, `client/src/stores/metadata-edit-dialog-store.ts` | Dirty-close confirm, pending scope switch, write/admin parity, a11y. See `docs/tasks/DMD-20-03.md`, DEC-088. |
+
+---
+
+## Phase 21: Database Metadata Edit Dialog — Assign Channels (IN PROGRESS)
+
+**Objective:** Extend the Database table pencil dialog with **Assign Channels**, reusing the full-page channel-map editor without leaving the table.
+
+Source: `docs/brainstorm/21_database_metadata_edit_dialogue/`.
+
+| Task ID | Task | Status | Key Files | Details |
+|---------|------|--------|-----------|---------|
+| DMD-21-01 | Reusable scoped Assign Channels panel | DONE (2026-06-10) | `client/src/components/edit-metadata/AssignChannelsPanel.tsx`, `client/src/features/edit-metadata/lib/channel-map-constants.ts`, `client/src/app/database/edit/page.tsx` | Extract panel from route; preserve load/save/dirty/permission behavior. See `docs/tasks/DMD-21-01.md`. |
+| DMD-21-02 | Assign Channels in metadata dialog nav | DONE (2026-06-10) | `client/src/components/edit-metadata/MetadataEditDialog.tsx`, `client/src/features/edit-metadata/lib/metadata-dialog-sections.ts` | Two-section left nav; both panels mounted with scoped program/version. See `docs/tasks/DMD-21-02.md`. |
+| DMD-21-03 | Cross-section dirty, permissions, refresh | DONE (2026-06-10) | `client/src/lib/channel-map-save-cache.ts`, `client/src/features/edit-metadata/lib/channel-map-save.ts`, `client/src/components/edit-metadata/MetadataEditDialog.tsx` | Harden dirty-close for channel maps, post-save table refresh, a11y. See `docs/tasks/DMD-21-03.md`. |
+
+---
+
+## Phase 22: Assign Channels Channel-Map Upload (IN PROGRESS)
+
+**Objective:** Let write users upload an existing `channel_map.yml` / `channel_map.yaml` from Assign Channels for a scoped program/version without re-uploading CSV/RSP data.
+
+Source: `docs/brainstorm/22_database_metada_edit_dialogue/`.
+
+| Task ID | Task | Status | Key Files | Details |
+|---------|------|--------|-----------|---------|
+| DMD-22-01 | Valid channel-map upload happy path | DONE (2026-06-10) | `client/src/components/edit-metadata/AssignChannelsPanel.tsx`, `client/src/components/edit-metadata/ChannelMapUploadDialog.tsx`, `server/routers/dashboard.py`, `server/services/ingestion.py` | Upload button + scoped popup; POST upload route; YAML load + retained-artifact processing. See `docs/tasks/DMD-22-01.md`, DEC-090. |
+| DMD-22-02 | Channel-map-only upload guardrails | DONE (2026-06-10) | `client/src/features/edit-metadata/lib/channel-map-file.ts`, `client/src/components/edit-metadata/ChannelMapUploadDialog.tsx`, `server/routers/dashboard.py`, `tests/server/routers/test_dashboard_router.py` | Enforce single-file basename guardrails (including folder rejection in UI), backend single-file authority, read-only denial, and invalid-upload no-mutation coverage. See `docs/tasks/DMD-22-02.md`, DEC-091. |
+| DMD-22-03 | Upload parity, refresh, cache behavior | DONE (2026-06-10) | `client/src/features/edit-metadata/lib/channel-map-process-feedback.ts`, `client/src/components/edit-metadata/AssignChannelsPanel.tsx`, `tests/server/services/test_ingestion_service_status.py` | YAML/ingest plot-mapping parity regression, shared cache invalidation proof, differentiated upload/save feedback, missing-map warning refresh coverage. See `docs/tasks/DMD-22-03.md`. |
+
+---
+
+## Phase 23 — Durability Schedule in metadata dialog (DMD-23)
+
+**Objective:** Extract the full-page Durability Schedule workflow into a reusable scoped panel and embed it in the Database table pencil popup dialog.
+
+Source: `docs/brainstorm/23_database_metadata_edit_dialogue/`.
+
+| Task ID | Task | Status | Key Files | Details |
+|---------|------|--------|-----------|---------|
+| DMD-23-01 | Reusable scoped Durability Schedule panel | DONE (2026-06-10) | `client/src/components/edit-metadata/DurabilitySchedulePanel.tsx`, `client/src/features/edit-metadata/lib/durability-schedule-*.ts`, `client/src/app/database/edit/page.tsx` | Extract panel from route; scoped load/upload/save/dirty/permissions; full-page side panel keeps upload. See `docs/tasks/DMD-23-01.md`, DEC-092. |
+| DMD-23-02 | Durability Schedule in metadata dialog nav | DONE (2026-06-10) | `client/src/components/edit-metadata/MetadataEditDialog.tsx`, `client/src/features/edit-metadata/lib/metadata-dialog-sections.ts` | Third nav route below Assign Channels; mount scoped `DurabilitySchedulePanel` with inline upload. See `docs/tasks/DMD-23-02.md`. |
+| DMD-23-03 | Cross-section dirty, permissions, refresh | DONE (2026-06-10) | `client/src/components/edit-metadata/MetadataEditDialog.tsx`, `client/src/features/edit-metadata/lib/metadata-dialog-close.ts` | Three-section dirty-close includes Durability Schedule; scope-change discard clears schedule dirty; read-only upload gating; save/upload query refresh. See `docs/tasks/DMD-23-03.md`, DEC-093. |
+
+---
+
+## Phase 24 — Upload pipeline derived-data tasks (UP-24)
+
+**Objective:** Async derived-data tasks with upload-style progress for channel reprocess and durability schedule damage calculation.
+
+Source: `docs/brainstorm/24_upload_pipeline/`.
+
+| Task ID | Task | Status | Key Files | Details |
+|---------|------|--------|-----------|---------|
+| UP-24-01 | Lean async channel reprocess tasks | DONE (2026-06-11) | `server/services/ingestion.py`, `server/models/derived_data_task.py`, `server/routers/dashboard.py`, `tests/server/services/test_channel_reprocess_task.py` | Channel-map save/upload start background `channel_reprocess` task; creator-scoped poll endpoint. See `docs/tasks/UP-24-01.md`, DEC-094. |
+| UP-24-02 | Channel reprocess progress modal + inline banner | DONE (2026-06-11) | `client/src/features/edit-metadata/DerivedDataOperationModal.tsx`, `client/src/stores/channel-reprocess-store.ts`, `client/src/components/edit-metadata/AssignChannelsPanel.tsx`, `client/src/components/edit-metadata/MetadataEditDialog.tsx` | Progress modal polls derived task; close-only; scoped banner reopens progress; active-task reuse. See `docs/tasks/UP-24-02.md`, DEC-095. |
+| UP-24-03 | Persist latest schedule-driven load-history damage | DONE (2026-06-11) | `server/services/damage_calculation_task.py`, `server/services/schedule_damage_validation.py`, `event_channel_damage` schema, schedule upload/save routes | Async `damage_calculation` task, prerequisite reports, latest-row persistence, stale marking. See `docs/tasks/UP-24-03.md`, DEC-096. |
+| UP-24-04 | Schedule damage progress + repair-report UX | DONE (2026-06-11) | `client/src/stores/damage-calculation-store.ts`, `client/src/components/edit-metadata/DurabilitySchedulePanel.tsx`, `client/src/features/edit-metadata/DerivedDataOperationModal.tsx` | Schedule upload/save poll damage tasks; prerequisite reports inline; failure summary reopens schedule editor with field highlights; save retries damage. See `docs/tasks/UP-24-04.md`, DEC-097. |
+| UP-24-05 | Read persisted damage states in Inspect Damage | DONE (2026-06-11) | `server/services/damage_inspect.py`, `server/routers/damage.py`, `client/src/app/inspect-damage/page.tsx`, `client/src/features/inspect-damage/` | Persisted read API, stale warnings/badges, empty state with Calculate Damage, prerequisite/failure context, no compute-on-read fallback. See `docs/tasks/UP-24-05.md`. |
+| UP-24-06 | Harden derived-data task flows and document rollout | DONE (2026-06-11) | `server/services/derived_data_task.py`, `tests/server/services/test_derived_data_task_hardening.py`, `docs/architecture/derived-data-upload-pipeline.md` | Cross-flow active-task reuse fix, E2E stale/damage regression tests, client cross-flow modal/banner tests, rollout architecture doc. See `docs/tasks/UP-24-06.md`. |
+| UP-24-07 | Preserve canonical raw during channel reprocess | DONE (2026-06-11) | `server/services/ingestion.py`, `server/services/etl/transformer.py`, `server/services/derived_data_lineage.py`, `server/storage/database.py`, `client/src/features/edit-metadata/lib/derived-task-progress.ts` | Upload writes all numeric signal columns to `measurements_raw`; Assign Channels regenerates only LTTB from raw and no longer shows an extraction phase. See `docs/tasks/UP-24-07.md`, DEC-101. |
+
+---
+
+## Phase 25 — Assign Channels progress dialog (AC-25)
+
+**Objective:** Align Assign Channels progress UX with import-style shell operation modals; modal survives closing Edit Metadata and stacks above the editor.
+
+Source: `docs/brainstorm/25_assign_channel/`.
+
+| Task ID | Task | Status | Key Files | Details |
+|---------|------|--------|-----------|---------|
+| AC-25-01 | Shell-mount channel reprocess modal and fix stacking | DONE (2026-06-11) | `client/src/features/edit-metadata/DatabaseDerivedDataOperationModals.tsx`, `client/src/app/database/page.tsx`, `client/src/lib/shell-operation-modal.ts`, `client/src/components/edit-metadata/MetadataEditDialog.tsx` | Mount derived-data modals on Database shell; remove duplicate editor mounts; `z-[70]` shell layer. See `docs/tasks/AC-25-01.md`, DEC-098. |
+| AC-25-02 | Remove save/upload progress toast; modal-only feedback | DONE (2026-06-11) | `client/src/features/edit-metadata/lib/assign-channels-reprocess-flow.ts`, `client/src/components/edit-metadata/AssignChannelsPanel.tsx` | Save/upload track reprocess immediately; no loading toast; error/reset toasts unchanged. See `docs/tasks/AC-25-02.md`, DEC-099. |
+| AC-25-03 | Database-page background banner when metadata editor closed | DONE (2026-06-11) | `client/src/features/edit-metadata/DatabaseChannelReprocessBanners.tsx`, `client/src/features/edit-metadata/lib/database-channel-reprocess-banner.ts`, `client/src/app/database/page.tsx` | Compact scoped banner with program/version label and Reopen progress when modal dismissed and editor closed. See `docs/tasks/AC-25-03.md`, DEC-100. |
+
+---
+
+## Phase 27 — Post-upload precompute (PPU-27)
+
+**Objective:** Automatically converge program/version derived data after upload, channel assignment, schedule save, and Inspect Damage access without a new job framework.
+
+Source: `docs/brainstorm/27_precompute_post_data_upload/`.
+
+| Task ID | Task | Status | Key Files | Details |
+|---------|------|--------|-----------|---------|
+| PPU-27-01 | Auto-start damage after channel reprocess completion | DONE (2026-06-11) | `server/services/post_upload_precompute.py`, `server/services/ingestion.py`, `server/services/damage_calculation_task.py`, `tests/server/services/test_post_upload_precompute.py` | Post-channel-reprocess orchestrator starts/reuses `damage_calculation` when schedule + prerequisites are ready; blocked/no-op otherwise; stale damage preserved. See `docs/tasks/PPU-27-01.md`. |
+| PPU-27-02 | Route schedule saves through precompute decisions | DONE (2026-06-11) | `server/services/post_upload_precompute.py`, `server/routers/dashboard.py`, `tests/server/services/test_post_upload_precompute.py` | Schedule attach/save persists rows first, then `decide_after_schedule_save()` starts/reuses damage or returns blocked; invalid rows fail validation without partial results. See `docs/tasks/PPU-27-02.md`. |
+| PPU-27-03 | Rescale scheduled damage for schedule-only edits | DONE (2026-06-11) | `server/services/schedule_damage_rescale.py`, `server/services/post_upload_precompute.py`, `server/routers/dashboard.py`, `tests/server/services/test_schedule_damage_rescale.py` | Scaling-only schedule saves rescale persisted base damage synchronously when eligible; missing/stale/error base damage or event-match changes fall back to full `damage_calculation`. See `docs/tasks/PPU-27-03.md`. |
+| PPU-27-04 | Backfill missing damage from Inspect Damage for write users | DONE (2026-06-11) | `server/services/post_upload_precompute.py`, `server/routers/damage.py`, `client/src/features/inspect-damage/`, `client/src/app/inspect-damage/page.tsx` | Write users auto-start/reuse `damage_calculation` when inspect finds missing damage with ready prerequisites; read-only users never mutate; blocked feedback is toast-only. See `docs/tasks/PPU-27-04.md`. |
+| PPU-27-05 | Refresh derived views and surface automatic precompute feedback | DONE (2026-06-11) | `client/src/lib/damage-calculation-cache.ts`, `client/src/stores/damage-calculation-store.ts`, `client/src/stores/channel-reprocess-store.ts`, `client/src/features/edit-metadata/lib/`, `server/services/ingestion.py` | Damage completion invalidates Inspect Damage + schedule-context queries; automatic/manual completion handling shared; blocked automatic precompute uses concise toasts; channel reprocess exposes precompute follow-up for auto-damage tracking. See `docs/tasks/PPU-27-05.md`. |
+| PPU-27-06 | Harden precompute idempotency and document rollout | DONE (2026-06-11) | `tests/server/services/test_post_upload_precompute_hardening.py`, `tests/server/routers/test_damage_router.py`, `docs/architecture/derived-data-upload-pipeline.md` | End-to-end idempotency and workflow-order permutation tests; rollout boundaries documented. See `docs/tasks/PPU-27-06.md`. |
+
+---
+
+## Phase 28 — Per-event channel resolution for Inspect Damage (IDM-28)
+
+**Objective:** Fix blank Inspect Damage cells caused by version-wide channel title strings that do not match per-event RSP export naming conventions.
+
+| Task ID | Task | Status | Key Files |
+|---------|------|--------|-----------|
+| IDM-28-01 | Shared per-event channel resolver + header provider | DONE (2026-06-11) | `server/services/per_event_channel_resolver.py`, `server/services/event_header_provider.py`, `server/storage/database.py`, `tests/server/services/test_per_event_channel_resolver.py`, `tests/server/services/test_event_header_provider.py` | Pure plot-index resolver and event header provider (preview first, artifact `#TITLES` fallback). See `docs/tasks/IDM-28-01.md`, DEC-104. |
+| IDM-28-02 | Persist index-based channel map | DONE (2026-06-11) | `server/services/ingestion.py`, `tests/server/services/test_channel_map_index_persistence.py` | UI/YAML save persists `col_N` in `dim_channel_map`; preview titles no longer frozen at save time. Minimal reprocess read-time resolution for index-based maps. See `docs/tasks/IDM-28-02.md`, DEC-105. |
+| IDM-28-03 | Damage lookup uses per-event headers | DONE (2026-06-11) | `server/services/query.py`, `tests/server/services/test_damage_query_service.py`, `tests/server/services/test_damage_calculation_task.py` | Damage series lookup resolves plot axis names from each event's headers; legacy `col_N` fallback retained. See `docs/tasks/IDM-28-03.md`. |
+| IDM-28-04 | Channel reprocess uses per-event headers | DONE | 2026-06-11 | |
+| IDM-28-05 | Recovery, partial recalc policy, docs | DONE (2026-06-11) | `server/services/scope_damage_repair.py`, `server/services/post_upload_precompute.py`, `server/services/damage_inspect.py`, `client/src/features/inspect-damage/lib/resolve-inspect-damage-backfill-scopes.ts`, `docs/architecture/derived-data-upload-pipeline.md`, `tests/server/services/test_scope_damage_repair.py`, `tests/server/services/test_idm28_mixed_cohort_recovery.py` | Partial mixed-cohort repair via backfill; canonical lookup + recovery docs. See `docs/tasks/IDM-28-05.md`. |
+
+---
+
+## Phase 29 — Upload pipeline cleanup (UPF-29)
+
+**Objective:** Stabilize upload-to-Inspect-Damage reliability and reduce client-side workflow entropy without adding a new job framework.
+
+| Task ID | Task | Status | Key Files | Details |
+|---------|------|--------|-----------|---------|
+| UPF-29-01 | Upload pipeline cleanup phases | DONE (2026-06-11) | `client/src/lib/api/task-polling.ts`, `client/src/features/edit-metadata/lib/apply-damage-task-response.ts`, `client/src/stores/derived-task-scope-store.ts`, `client/src/features/database-upload/upload-completion-result.ts`, `client/src/features/inspect-damage/lib/inspect-damage-view-state.ts` | Visible persisted damage errors, long-running derived-task polling, shared damage-task response handling, shared derived-task scope lifecycle, pending-channel-map upload guidance, and shallow wrapper cleanup. See `docs/tasks/UPF-29-01.md`, DEC-107. |
+
+---
+
 ## Known Issues (Backlog)
 
 Issues identified during codebase analysis, not yet assigned to a phase:

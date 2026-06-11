@@ -13,6 +13,11 @@ from server.services.damage_channels import (
     is_generic_channel_name,
     resolve_damage_channel_name,
 )
+from server.services.event_header_provider import EventHeaderProvider
+from server.services.per_event_channel_resolver import (
+    PlotChannelMapping,
+    resolve_plot_channels_from_headers,
+)
 from server.storage.database import UnifiedStore
 from server.storage.schema_loader import get_schema_loader
 from server.utils.cache import CacheKeys, SimpleCache
@@ -255,6 +260,7 @@ class QueryService:
         if not event_ids:
             return []
 
+        header_provider = EventHeaderProvider(self.db)
         series: list[dict[str, Any]] = []
         for event_id in event_ids:
             event = self.db.get_event(event_id)
@@ -262,7 +268,9 @@ class QueryService:
                 continue
 
             channel_map = self.db.get_channel_map(event["program_id"], event["version"])
+            rows_by_key = {str(row.get("plot_key")): row for row in channel_map}
             specs = derive_damage_channel_specs(channel_map)
+            event_headers = header_provider.load_for_event(event_id)
             raw_channel_names: list[str] | None = None
             for spec in specs:
                 item: dict[str, Any] = {
@@ -279,7 +287,43 @@ class QueryService:
                     continue
 
                 lookup_channel_name = spec.channel_name
-                if is_generic_channel_name(lookup_channel_name):
+                plot_row = rows_by_key.get(spec.plot_key)
+                resolved_from_headers = False
+                if plot_row is not None and event_headers is not None:
+                    plot_resolution = resolve_plot_channels_from_headers(
+                        PlotChannelMapping(
+                            x_col=int(plot_row["x_col"]),
+                            y_col=int(plot_row["y_col"]),
+                            x_unit=plot_row.get("x_unit"),
+                            y_unit=plot_row.get("y_unit"),
+                        ),
+                        event_headers.headers,
+                        event_headers.units,
+                    )
+                    if plot_resolution.error_code is not None:
+                        item["status"] = "unavailable"
+                        item["error"] = plot_resolution.error_message
+                        series.append(item)
+                        continue
+                    lookup_channel_name = (
+                        plot_resolution.x_channel_name
+                        if spec.axis == "x"
+                        else plot_resolution.y_channel_name
+                    )
+                    resolved_unit = (
+                        plot_resolution.x_unit
+                        if spec.axis == "x"
+                        else plot_resolution.y_unit
+                    )
+                    if resolved_unit:
+                        item["unit"] = resolved_unit
+                    resolved_from_headers = True
+
+                if (
+                    not resolved_from_headers
+                    and lookup_channel_name is not None
+                    and is_generic_channel_name(lookup_channel_name)
+                ):
                     if raw_channel_names is None:
                         raw_channel_names = [
                             str(row[0])

@@ -1,30 +1,37 @@
 'use client';
 
 import type { CSSProperties } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Info } from 'lucide-react';
+import { ColumnResizeHandle } from '@/components/upload/ColumnResizeHandle';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import type { DurabilityScheduleRow } from '@/features/edit-metadata/lib/build-durability-schedule-rows';
 
-const COL_RSP_FILE = 220;
-const COL_RSP_EVENT = 120;
-const COL_SCHEDULE_PATTERN = 144;
-const COL_WEIGHT = 72;
-const COL_REPEATS = 72;
-const COL_SCHEDULE_SEQUENCE = 156;
-const COL_GLOBAL_MULTIPLIER = 132;
-
-const COLUMN_WIDTHS = [
-  COL_RSP_FILE,
-  COL_RSP_EVENT,
-  COL_SCHEDULE_PATTERN,
-  COL_WEIGHT,
-  COL_REPEATS,
-  COL_SCHEDULE_SEQUENCE,
-  COL_GLOBAL_MULTIPLIER,
+const COLUMN_KEYS = [
+  'rspFileName',
+  'rspEventName',
+  'schedulePattern',
+  'weight',
+  'repeats',
+  'scheduleSequence',
+  'globalMultiplier',
 ] as const;
 
-const TABLE_WIDTH = COLUMN_WIDTHS.reduce((sum, width) => sum + width, 0);
+type ColumnKey = (typeof COLUMN_KEYS)[number];
+
+const DEFAULT_COLUMN_WIDTHS: Record<ColumnKey, number> = {
+  rspFileName: 330,
+  rspEventName: 120,
+  schedulePattern: 144,
+  weight: 72,
+  repeats: 72,
+  scheduleSequence: 156,
+  globalMultiplier: 132,
+};
+
+const MIN_COLUMN_PX = 60;
+const MAX_COLUMN_PX = 600;
 const MIN_PADDING_ROWS = 4;
 
 export type DurabilityScheduleEditableField =
@@ -58,22 +65,30 @@ function HeaderCell({
   width,
   className,
   title,
+  onResize,
 }: {
   children?: React.ReactNode;
   width: number;
   className?: string;
   title?: string;
+  onResize: (next: number) => void;
 }) {
   return (
     <div
       className={cn(
-        'flex min-w-0 items-center justify-center whitespace-nowrap border-b border-r border-border bg-muted/40 px-2 text-center text-[11px] leading-none',
+        'relative flex min-w-0 items-center justify-center whitespace-nowrap border-b border-r border-border bg-muted/40 px-2 text-center text-[11px] leading-none',
         className,
       )}
       style={flexFor(width)}
       title={title}
     >
       {children}
+      <ColumnResizeHandle
+        width={width}
+        onResize={onResize}
+        min={MIN_COLUMN_PX}
+        max={MAX_COLUMN_PX}
+      />
     </div>
   );
 }
@@ -109,6 +124,7 @@ function EditableCell({
   inputMode,
   onChange,
   disabled,
+  highlighted,
 }: {
   value: string;
   width: number;
@@ -116,14 +132,17 @@ function EditableCell({
   inputMode?: 'text' | 'decimal' | 'numeric';
   onChange: (value: string) => void;
   disabled?: boolean;
+  highlighted?: boolean;
 }) {
   return (
     <div
       className={cn(
         'flex min-w-0 items-center border-b border-r border-border bg-muted/40',
+        highlighted && 'bg-destructive/10 ring-1 ring-inset ring-destructive/40',
         className,
       )}
       style={flexFor(width)}
+      data-highlighted={highlighted ? 'true' : undefined}
     >
       <Input
         value={value}
@@ -140,25 +159,52 @@ export interface DurabilityScheduleTableProps {
   rows: DurabilityScheduleRow[];
   globalMultiplier?: number | null;
   editable?: boolean;
+  highlightedFieldsByRowId?: Record<string, DurabilityScheduleEditableField[]>;
   onRowChange?: (rowId: string, field: DurabilityScheduleEditableField, value: string) => void;
   onMultiplierChange?: (value: string) => void;
   minPaddingRows?: number;
+}
+
+function isFieldHighlighted(
+  highlightedFieldsByRowId: Record<string, DurabilityScheduleEditableField[]> | undefined,
+  rowId: string,
+  field: DurabilityScheduleEditableField,
+): boolean {
+  return highlightedFieldsByRowId?.[rowId]?.includes(field) ?? false;
 }
 
 export function DurabilityScheduleTable({
   rows,
   globalMultiplier = null,
   editable = false,
+  highlightedFieldsByRowId,
   onRowChange,
   onMultiplierChange,
   minPaddingRows = MIN_PADDING_ROWS,
 }: DurabilityScheduleTableProps) {
   const paddingRowCount = Math.max(0, minPaddingRows - rows.length);
   const multiplierDisplay = formatCell(globalMultiplier);
+  const [columnWidthOverrides, setColumnWidthOverrides] = useState<
+    Partial<Record<ColumnKey, number>>
+  >({});
+
+  const setColumnWidth = useCallback((key: ColumnKey, next: number) => {
+    setColumnWidthOverrides((prev) => (prev[key] === next ? prev : { ...prev, [key]: next }));
+  }, []);
+
+  const widthOf = useCallback(
+    (key: ColumnKey) => columnWidthOverrides[key] ?? DEFAULT_COLUMN_WIDTHS[key],
+    [columnWidthOverrides],
+  );
+
+  const tableWidth = useMemo(
+    () => COLUMN_KEYS.reduce((sum, key) => sum + widthOf(key), 0),
+    [widthOf],
+  );
 
   return (
-    <div className="w-fit max-w-full shrink-0 overflow-hidden rounded-lg border bg-card">
-      <div className="flex items-start gap-1.5 border-b px-3 py-1.5 text-xs leading-5 text-muted-foreground">
+    <div className="flex min-h-0 w-full max-w-full flex-1 flex-col overflow-hidden rounded-lg border bg-card">
+      <div className="flex shrink-0 items-start gap-1.5 border-b px-3 py-1.5 text-xs leading-5 text-muted-foreground">
         <Info
           className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
           aria-hidden="true"
@@ -169,71 +215,111 @@ export function DurabilityScheduleTable({
             : 'Review matched schedule fields for each RSP event in this program/version.'}
         </p>
       </div>
-      <div className="overflow-x-auto">
-        <div style={{ width: TABLE_WIDTH }}>
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div style={{ width: tableWidth }}>
           <div className="sticky top-0 z-10 shrink-0 bg-card">
             <Row>
-              <HeaderCell width={COL_RSP_FILE} className="font-medium text-foreground">
+              <HeaderCell
+                width={widthOf('rspFileName')}
+                className="font-medium text-foreground"
+                onResize={(next) => setColumnWidth('rspFileName', next)}
+              >
                 RSP File Name
               </HeaderCell>
-              <HeaderCell width={COL_RSP_EVENT} className="font-medium text-foreground">
+              <HeaderCell
+                width={widthOf('rspEventName')}
+                className="font-medium text-foreground"
+                onResize={(next) => setColumnWidth('rspEventName', next)}
+              >
                 RSP Event Name
               </HeaderCell>
-              <HeaderCell width={COL_SCHEDULE_PATTERN} className="font-medium text-foreground">
+              <HeaderCell
+                width={widthOf('schedulePattern')}
+                className="font-medium text-foreground"
+                onResize={(next) => setColumnWidth('schedulePattern', next)}
+              >
                 Schedule Pattern
               </HeaderCell>
-              <HeaderCell width={COL_WEIGHT} className="font-medium text-foreground">
+              <HeaderCell
+                width={widthOf('weight')}
+                className="font-medium text-foreground"
+                onResize={(next) => setColumnWidth('weight', next)}
+              >
                 Weight
               </HeaderCell>
-              <HeaderCell width={COL_REPEATS} className="font-medium text-foreground">
+              <HeaderCell
+                width={widthOf('repeats')}
+                className="font-medium text-foreground"
+                onResize={(next) => setColumnWidth('repeats', next)}
+              >
                 Repeats
               </HeaderCell>
-              <HeaderCell width={COL_SCHEDULE_SEQUENCE} className="font-medium text-foreground">
+              <HeaderCell
+                width={widthOf('scheduleSequence')}
+                className="font-medium text-foreground"
+                onResize={(next) => setColumnWidth('scheduleSequence', next)}
+              >
                 Schedule Sequence
               </HeaderCell>
-              <HeaderCell width={COL_GLOBAL_MULTIPLIER} className="border-r-0 font-medium text-foreground">
+              <HeaderCell
+                width={widthOf('globalMultiplier')}
+                className="border-r-0 font-medium text-foreground"
+                onResize={(next) => setColumnWidth('globalMultiplier', next)}
+              >
                 Global Multiplier
               </HeaderCell>
             </Row>
           </div>
 
-          <div className="max-h-[min(60vh,640px)] overflow-y-auto">
+          <div>
             {rows.map((row) => (
               <Row key={row.id} className="bg-card transition-colors hover:bg-muted/30">
-                <DataCell value={row.rspFileName} width={COL_RSP_FILE} />
+                <DataCell value={row.rspFileName} width={widthOf('rspFileName')} />
                 {editable ? (
                   <>
                     <EditableCell
                       value={row.rspEventName}
-                      width={COL_RSP_EVENT}
+                      width={widthOf('rspEventName')}
+                      highlighted={isFieldHighlighted(
+                        highlightedFieldsByRowId,
+                        row.id,
+                        'rspEventName',
+                      )}
                       onChange={(value) => onRowChange?.(row.id, 'rspEventName', value)}
                     />
                     <EditableCell
                       value={row.schedulePattern}
-                      width={COL_SCHEDULE_PATTERN}
+                      width={widthOf('schedulePattern')}
+                      highlighted={isFieldHighlighted(
+                        highlightedFieldsByRowId,
+                        row.id,
+                        'schedulePattern',
+                      )}
                       onChange={(value) => onRowChange?.(row.id, 'schedulePattern', value)}
                     />
                     <EditableCell
                       value={formatCell(row.weight)}
-                      width={COL_WEIGHT}
+                      width={widthOf('weight')}
                       inputMode="decimal"
+                      highlighted={isFieldHighlighted(highlightedFieldsByRowId, row.id, 'weight')}
                       onChange={(value) => onRowChange?.(row.id, 'weight', value)}
                     />
                     <EditableCell
                       value={formatCell(row.repeats)}
-                      width={COL_REPEATS}
+                      width={widthOf('repeats')}
                       inputMode="numeric"
+                      highlighted={isFieldHighlighted(highlightedFieldsByRowId, row.id, 'repeats')}
                       onChange={(value) => onRowChange?.(row.id, 'repeats', value)}
                     />
                     <EditableCell
                       value={formatCell(row.scheduleSequence)}
-                      width={COL_SCHEDULE_SEQUENCE}
+                      width={widthOf('scheduleSequence')}
                       inputMode="numeric"
                       onChange={(value) => onRowChange?.(row.id, 'scheduleSequence', value)}
                     />
                     <EditableCell
                       value={multiplierDisplay}
-                      width={COL_GLOBAL_MULTIPLIER}
+                      width={widthOf('globalMultiplier')}
                       inputMode="decimal"
                       className="border-r-0"
                       onChange={(value) => onMultiplierChange?.(value)}
@@ -241,14 +327,14 @@ export function DurabilityScheduleTable({
                   </>
                 ) : (
                   <>
-                    <DataCell value={row.rspEventName} width={COL_RSP_EVENT} />
-                    <DataCell value={row.schedulePattern} width={COL_SCHEDULE_PATTERN} />
-                    <DataCell value={row.weight} width={COL_WEIGHT} />
-                    <DataCell value={row.repeats} width={COL_REPEATS} />
-                    <DataCell value={row.scheduleSequence} width={COL_SCHEDULE_SEQUENCE} />
+                    <DataCell value={row.rspEventName} width={widthOf('rspEventName')} />
+                    <DataCell value={row.schedulePattern} width={widthOf('schedulePattern')} />
+                    <DataCell value={row.weight} width={widthOf('weight')} />
+                    <DataCell value={row.repeats} width={widthOf('repeats')} />
+                    <DataCell value={row.scheduleSequence} width={widthOf('scheduleSequence')} />
                     <DataCell
                       value={globalMultiplier}
-                      width={COL_GLOBAL_MULTIPLIER}
+                      width={widthOf('globalMultiplier')}
                       className="border-r-0"
                     />
                   </>
@@ -264,14 +350,14 @@ export function DurabilityScheduleTable({
 
             {Array.from({ length: paddingRowCount }, (_, index) => (
               <Row key={`padding-${index}`} aria-hidden="true">
-                {COLUMN_WIDTHS.map((width, cellIndex) => (
+                {COLUMN_KEYS.map((key, cellIndex) => (
                   <div
-                    key={`padding-cell-${index}-${cellIndex}`}
+                    key={`padding-cell-${index}-${key}`}
                     className={cn(
                       'h-8 border-b border-r border-border bg-card',
-                      cellIndex === COLUMN_WIDTHS.length - 1 && 'border-r-0',
+                      cellIndex === COLUMN_KEYS.length - 1 && 'border-r-0',
                     )}
-                    style={flexFor(width)}
+                    style={flexFor(widthOf(key))}
                   />
                 ))}
               </Row>

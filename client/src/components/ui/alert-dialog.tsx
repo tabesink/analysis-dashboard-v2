@@ -10,9 +10,10 @@ interface AlertDialogProps {
   onOpenChange: (open: boolean) => void;
   children: React.ReactNode;
   backdropClassName?: string;
+  containerClassName?: string;
 }
 
-interface AlertDialogContentProps {
+interface AlertDialogContentProps extends React.ComponentProps<'div'> {
   children: React.ReactNode;
   className?: string;
 }
@@ -46,12 +47,13 @@ export function AlertDialog({
   onOpenChange,
   children,
   backdropClassName,
+  containerClassName,
 }: AlertDialogProps) {
   if (!open) return null;
 
   return (
     <AlertDialogContext.Provider value={{ onOpenChange }}>
-      <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className={cn('fixed inset-0 z-50 flex items-center justify-center', containerClassName)}>
         {/* Backdrop */}
         <div
           className={cn('fixed inset-0 bg-black/50 backdrop-blur-sm', backdropClassName)}
@@ -64,7 +66,7 @@ export function AlertDialog({
   );
 }
 
-export function AlertDialogContent({ children, className }: AlertDialogContentProps) {
+export function AlertDialogContent({ children, className, ...props }: AlertDialogContentProps) {
   const context = React.useContext(AlertDialogContext);
 
   return (
@@ -75,6 +77,7 @@ export function AlertDialogContent({ children, className }: AlertDialogContentPr
         className
       )}
       onClick={(e) => e.stopPropagation()}
+      {...props}
     >
       <button
         className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"

@@ -91,6 +91,7 @@ def _build_upload_task_event(task_id: str, row: dict[str, object]) -> UploadTask
         completed_events=int(row.get("completed_events") or 0),
         total_events=int(row.get("total_events") or 0),
         current_event=row.get("current_event"),  # type: ignore[arg-type]
+        progress_message=row.get("progress_message"),  # type: ignore[arg-type]
         error=row.get("error"),  # type: ignore[arg-type]
         result=_to_upload_response(row.get("result_json")),
     )

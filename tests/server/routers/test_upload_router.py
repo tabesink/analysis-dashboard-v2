@@ -170,6 +170,7 @@ def test_get_upload_folder_task_returns_completed_result_for_creator(
         phase="completed",
         completed_events=2,
         total_events=2,
+        progress_message="Processed 2/2: event_b",
         result={
             "success": True,
             "files": [
@@ -194,6 +195,7 @@ def test_get_upload_folder_task_returns_completed_result_for_creator(
     payload = response.json()
     assert payload["task_id"] == task_id
     assert payload["status"] == "completed"
+    assert payload["progress_message"] == "Processed 2/2: event_b"
     assert payload["result"]["success"] is True
     assert payload["result"]["event_ids"] == ["event_a"]
 

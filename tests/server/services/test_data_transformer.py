@@ -2,7 +2,7 @@ import pandas as pd
 from server.services.etl.transformer import DataTransformer
 
 
-def test_transformer_stores_only_channel_map_columns() -> None:
+def test_transformer_stores_all_numeric_signal_columns() -> None:
     df = pd.DataFrame(
         [
             [1, 0.0, 10.0, 20.0, 30.0, 40.0],
@@ -31,17 +31,19 @@ def test_transformer_stores_only_channel_map_columns() -> None:
         "001_1 LF LCA OtrBJ P_UG_X Force",
         "002_2 LF LCA OtrBJ P_UG_Y Force",
         "003_3 LF LCA OtrBJ P_UG_Z Force",
+        "004_4 LF ShockLwBsh P_UG_X Momt",
     ]
 
 
-def test_transformer_deduplicates_shared_plot_columns() -> None:
+def test_transformer_skips_non_numeric_signal_columns() -> None:
     df = pd.DataFrame(
         [
             [1, 0.0, 10.0, 20.0, 30.0],
             [2, 0.1, 11.0, 21.0, 31.0],
         ],
-        columns=["", "", "001_1 LF LCA OtrBJ P_UG_X Force", "Road Load", "P_UG_X Disp"],
+        columns=["Index", "Time", "001_1 LF LCA OtrBJ P_UG_X Force", "Road Load", "Comment"],
     )
+    df["Comment"] = ["ignore me", "ignore me too"]
 
     transformed = DataTransformer().transform_to_long(
         df,

@@ -85,7 +85,7 @@ def test_ingest_records_derived_data_lineage_with_canonical_csv_and_snapshot(
     assert derived["channel_map_snapshot_id"] == snapshot["snapshot_id"]
 
 
-def test_pending_event_marked_stale_when_active_snapshot_changes(
+def test_pending_event_lttb_marked_stale_when_active_snapshot_changes(
     test_database, test_cache, test_settings, sample_csv_content
 ) -> None:
     service = _make_ingestion_service(test_database, test_cache, test_settings)
@@ -133,7 +133,7 @@ def test_pending_event_marked_stale_when_active_snapshot_changes(
     second_after = lineage.get_lineage(second_event_id)
     assert first_after is not None
     assert second_after is not None
-    assert first_after["measurements_status"] == STATUS_STALE
+    assert first_after["measurements_status"] == STATUS_CURRENT
     assert first_after["lttb_status"] == STATUS_STALE
     assert second_after["measurements_status"] == STATUS_CURRENT
     assert second_after["lttb_status"] == STATUS_CURRENT

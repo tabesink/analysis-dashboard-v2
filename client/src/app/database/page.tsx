@@ -32,12 +32,15 @@ import { dashboardApi } from '@/lib/api';
 import { useUploadedDatasets, useScopeDeleteOperation } from '@/hooks';
 import { ScopeDeleteOperationModal } from '@/features/database-scope-delete/ScopeDeleteOperationModal';
 import { UploadOperationModal } from '@/features/database-upload/UploadOperationModal';
+import { DatabaseChannelReprocessBanners } from '@/features/edit-metadata/DatabaseChannelReprocessBanners';
+import { DatabaseDerivedDataOperationModals } from '@/features/edit-metadata/DatabaseDerivedDataOperationModals';
 import { cn } from '@/lib/utils';
 import {
   DatabaseSidePanel,
   DatabaseEventTree,
   ColumnResizeHandle,
 } from '@/components/upload';
+import { MetadataEditDialog } from '@/components/edit-metadata';
 import { DEFAULT_FILTER_OPTIONS } from '@/config/filters';
 import type { FilterOptions } from '@/types/api';
 import type { DatasetInfo, UploadMetadata } from '@/types/upload';
@@ -848,6 +851,7 @@ export default function DatabasePage() {
 
   return (
     <div className="flex-1 p-4 min-h-[calc(100vh-3.5rem)]">
+      <DatabaseChannelReprocessBanners />
       <div className="flex gap-0 h-[calc(100vh-7rem)]">
 
         {/* Side Panel */}
@@ -1036,6 +1040,8 @@ export default function DatabasePage() {
       </div>
       <ScopeDeleteOperationModal {...scopeDeleteModalProps} />
       <UploadOperationModal {...uploadModalProps} />
+      <DatabaseDerivedDataOperationModals />
+      <MetadataEditDialog />
     </div>
   );
 }

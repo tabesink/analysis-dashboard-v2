@@ -550,7 +550,7 @@ tables:
       measurements_data_kind:
         type: VARCHAR
         nullable: false
-        default: full_resolution_derived
+        default: full_resolution_canonical
       lttb_data_kind:
         type: VARCHAR
         nullable: false
@@ -558,6 +558,49 @@ tables:
       updated_at:
         type: TIMESTAMP
         default: CURRENT_TIMESTAMP
+
+  event_channel_damage:
+    description: Latest schedule-driven load-history damage per event and channel
+    columns:
+      event_id:
+        type: VARCHAR
+        nullable: false
+      channel_key:
+        type: VARCHAR
+        nullable: false
+      channel_name:
+        type: VARCHAR
+        nullable: false
+      channel_unit:
+        type: VARCHAR
+      base_damage:
+        type: DOUBLE
+      scheduled_damage:
+        type: DOUBLE
+      repeats:
+        type: INTEGER
+      weight:
+        type: DOUBLE
+      multiplier:
+        type: DOUBLE
+      schedule_id:
+        type: BIGINT
+      schedule_sha256:
+        type: VARCHAR
+      status:
+        type: VARCHAR
+        nullable: false
+      stale_reason:
+        type: VARCHAR
+      error:
+        type: VARCHAR
+      updated_at:
+        type: TIMESTAMP
+        default: CURRENT_TIMESTAMP
+    constraints:
+      pk_event_channel_damage:
+        type: primary_key
+        columns: [event_id, channel_key]
 
   channel_map_snapshots:
     description: Normalized channel-map snapshots with authoring provenance
@@ -830,6 +873,19 @@ tables:
       expires_at:
         type: TIMESTAMP
         nullable: false
+      task_kind:
+        type: VARCHAR
+        default: "folder_upload"
+        additive: true
+      sub_phase:
+        type: VARCHAR
+        additive: true
+      progress_message:
+        type: VARCHAR
+        additive: true
+      scope_json:
+        type: JSON
+        additive: true
 
   saved_filters:
     description: Saved filter presets
@@ -1023,6 +1079,9 @@ indexes:
   idx_meas_lttb_event:
     table: measurements_lttb
     columns: [event_id, plot_key]
+  idx_event_channel_damage_event:
+    table: event_channel_damage
+    columns: [event_id]
   idx_meas_lttb_covering:
     table: measurements_lttb
     columns: [plot_key, event_id, x, y]

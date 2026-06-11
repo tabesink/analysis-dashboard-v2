@@ -36,7 +36,7 @@ export function UploadScheduleSection({
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-testid="durability-schedule-upload">
         <FileDropZone
           inputId="edit-metadata-schedule-upload-input"
           accept=".sch"

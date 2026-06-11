@@ -1,7 +1,13 @@
 'use client';
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { AlertCircle, ChevronDown, Minus, Check } from 'lucide-react';
+import { AlertCircle, ChevronDown, Minus, Check, Pencil } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  buildVersionMetadataEditLabel,
+  triggerVersionMetadataEdit,
+} from '@/features/edit-metadata/lib/version-metadata-edit-trigger';
+import { openMetadataEditDialog } from '@/stores/metadata-edit-dialog-store';
 import * as CheckboxPrimitive from '@radix-ui/react-checkbox';
 import {
   Collapsible,
@@ -9,7 +15,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
-import { getStatusBadgeClassName } from '@/lib/status-badge';
+import { rollUpStatusFromValues } from '@/lib/status-rollup';
 import type { DatasetInfo, ProgramVersionSummary } from '@/types/upload';
 
 // =============================================================================
@@ -85,27 +91,6 @@ interface ProgramGroup {
   /** Sum of totalEventCount across all versions for this program. */
   totalEventCount: number;
   missingChannelMap: boolean;
-}
-
-const STATUS_PRIORITY: Array<DatasetInfo['status']> = ['Obsolete', 'Pending', 'Approved'];
-
-function rollUpStatusFromValues(
-  statusValues: string[],
-): { label: string; className: string } {
-  const unique = [...new Set(statusValues.filter(Boolean))];
-  if (unique.length === 0) {
-    return { label: '-', className: getStatusBadgeClassName(undefined) };
-  }
-  if (unique.length === 1) {
-    return { label: unique[0], className: getStatusBadgeClassName(unique[0]) };
-  }
-  for (const p of STATUS_PRIORITY) {
-    if (p && unique.includes(p)) {
-      return { label: p, className: getStatusBadgeClassName(p) };
-    }
-  }
-  const s = unique[0];
-  return { label: s, className: getStatusBadgeClassName(s) };
 }
 
 // =============================================================================
@@ -402,9 +387,30 @@ export function DatabaseEventTree({
                               )}
                               {vg.version}
                             </span>
-                            <span className="text-xs text-muted-foreground">
-                              ({vg.totalEventCount})
-                            </span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              data-testid="version-metadata-edit-button"
+                              aria-label={buildVersionMetadataEditLabel({
+                                programId: program.programId,
+                                version: vg.version,
+                                eventCount: vg.totalEventCount,
+                              })}
+                              className="size-6 shrink-0 rounded-sm text-muted-foreground hover:text-foreground"
+                              onClick={(event) =>
+                                triggerVersionMetadataEdit(
+                                  event,
+                                  {
+                                    programId: program.programId,
+                                    version: vg.version,
+                                  },
+                                  openMetadataEditDialog,
+                                )
+                              }
+                            >
+                              <Pencil className="size-3" aria-hidden />
+                            </Button>
                           </div>
                           <div className="flex items-center">
                             {columnDefinitions.map((col) => {

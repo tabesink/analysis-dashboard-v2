@@ -38,51 +38,44 @@ interface UseUploadReturn {
 
 export type UploadProgressPhase = 'uploading' | 'validating' | 'processing';
 
-function deriveProgressPhase(message: string): UploadProgressPhase {
-  const lower = message.toLowerCase();
-  if (lower.includes('uploading') || lower.includes('processing on server')) {
-    return 'uploading';
-  }
-  if (lower.includes('validating') || lower.includes('converting')) {
-    return 'validating';
-  }
-  return 'processing';
-}
-
 function applyUploadTaskProgress(
   data: UploadTaskEvent,
   setProgress: (value: number) => void,
   setMessage: (value: string) => void,
+  setProgressPhase: (value: UploadProgressPhase) => void,
 ): void {
   const totalEvents = Math.max(1, data.total_events || 0);
   const completedEvents = Math.max(0, data.completed_events || 0);
+  const ratio = completedEvents / totalEvents;
 
-  if (data.phase === 'validating') {
-    setProgress(10);
-    setMessage('Validating files...');
+  if (data.phase === 'converting' || data.phase === 'validating') {
+    setProgress(Math.min(30, Math.round(10 + ratio * 20)));
+    setMessage(
+      data.progress_message ??
+        (data.phase === 'converting'
+          ? 'Converting RSP files...'
+          : 'Validating files...'),
+    );
+    setProgressPhase('validating');
     return;
   }
 
-  if (data.phase === 'converting') {
-    setProgress(10);
-    setMessage('Converting RSP files...');
-    return;
-  }
+  const progressMessage =
+    data.progress_message ??
+    (data.current_event
+      ? `Processed ${completedEvents}/${totalEvents}: ${data.current_event}`
+      : `Processing events: ${completedEvents}/${totalEvents}`);
 
-  const serverProgress = Math.round((completedEvents / totalEvents) * 90);
-  setProgress(Math.min(99, 10 + serverProgress));
-  if (data.current_event) {
-    setMessage(`Processed ${completedEvents}/${totalEvents}: ${data.current_event}`);
-  } else {
-    setMessage(`Processing events: ${completedEvents}/${totalEvents}`);
-  }
+  setProgress(Math.min(99, Math.round(30 + ratio * 69)));
+  setMessage(progressMessage);
+  setProgressPhase('processing');
 }
 
 export function useUpload(options: UseUploadOptions = {}): UseUploadReturn {
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [message, setMessage] = useState('');
-  const progressPhase = deriveProgressPhase(message);
+  const [progressPhase, setProgressPhase] = useState<UploadProgressPhase>('uploading');
   const abortRef = useRef<AbortController | null>(null);
   const cancelledRef = useRef(false);
 
@@ -99,6 +92,7 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadReturn {
       setIsUploading(true);
       setProgress(0);
       setMessage('Uploading files...');
+      setProgressPhase('uploading');
 
       try {
         const start = await uploadApi.startFolderUpload(
@@ -109,9 +103,11 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadReturn {
             if (isProcessing) {
               setProgress(10);
               setMessage('Processing on server (this may take a few minutes)...');
+              setProgressPhase('uploading');
             } else {
               setProgress(Math.round(percent * 0.1));
               setMessage('Uploading files...');
+              setProgressPhase('uploading');
             }
           },
           abortRef.current.signal,
@@ -119,12 +115,13 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadReturn {
 
         setProgress(10);
         setMessage('Validating files...');
+        setProgressPhase('validating');
 
         const finalEvent = await uploadApi.waitForUploadTask(
           start.task_id,
           (data) => {
             if (cancelledRef.current) return;
-            applyUploadTaskProgress(data, setProgress, setMessage);
+            applyUploadTaskProgress(data, setProgress, setMessage, setProgressPhase);
           },
           (state) => {
             if (cancelledRef.current) return;
@@ -145,6 +142,7 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadReturn {
             ? `Complete: ${response.files.length} files pending channel map`
             : `Complete: ${response.files.length} files processed`
         );
+        setProgressPhase('processing');
 
         options.onComplete?.(response);
         return response;
@@ -174,6 +172,7 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadReturn {
     setIsUploading(false);
     setProgress(0);
     setMessage('');
+    setProgressPhase('uploading');
   }, []);
 
   return {

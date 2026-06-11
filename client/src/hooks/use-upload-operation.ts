@@ -3,8 +3,8 @@
 import { useCallback, useState } from 'react';
 import type { UploadMetadata, UploadResponse } from '@/types/upload';
 import { useUpload } from '@/hooks/use-upload';
+import { buildUploadCompletionResult } from '@/features/database-upload/upload-completion-result';
 import type {
-  UploadCompletionResult,
   UploadOperationModalProps,
   UploadWizardStep,
 } from '@/features/database-upload/upload-operation-types';
@@ -22,29 +22,6 @@ export interface UseUploadOperationReturn {
   ) => Promise<void>;
   modalProps: UploadOperationModalProps;
   isBusy: boolean;
-}
-
-function buildSuccessResult(
-  response: UploadResponse,
-  elapsedSeconds: number,
-): UploadCompletionResult {
-  const detailLines = [
-    `${response.files.length} file${response.files.length === 1 ? '' : 's'} imported`,
-    `${response.event_ids.length} event${response.event_ids.length === 1 ? '' : 's'} created`,
-  ];
-  if (response.pending_channel_map) {
-    detailLines.push('Channel map still required before events can be plotted');
-  }
-
-  return {
-    success: true,
-    title: response.pending_channel_map ? 'Import complete (map pending)' : 'Import complete',
-    message: response.pending_channel_map
-      ? 'Events were created. Define the channel map in Edit Metadata before plotting.'
-      : 'Files were uploaded and processed successfully.',
-    elapsedSeconds,
-    detailLines,
-  };
 }
 
 export function useUploadOperation({
@@ -100,7 +77,7 @@ export function useUploadOperation({
       try {
         const response = await upload(dataFiles, channelMapFile, metadata);
         const elapsedSeconds = (Date.now() - startedAt) / 1000;
-        finishWithSummary(buildSuccessResult(response, elapsedSeconds));
+        finishWithSummary(buildUploadCompletionResult({ response, elapsedSeconds }));
         await onComplete?.(response);
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {

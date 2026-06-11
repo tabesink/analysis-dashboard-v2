@@ -49,6 +49,23 @@ def _index_names(store: UnifiedStore) -> set[str]:
     return {row[0] for row in rows}
 
 
+def _primary_key_columns(store: UnifiedStore, table_name: str) -> list[str]:
+    rows = store.read_connection.execute(
+        """
+        SELECT kcu.column_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+         AND tc.table_name = kcu.table_name
+        WHERE tc.table_name = ?
+          AND tc.constraint_type = 'PRIMARY KEY'
+        ORDER BY kcu.ordinal_position
+        """,
+        [table_name],
+    ).fetchall()
+    return [row[0] for row in rows]
+
+
 def _table_names_from_path(db_path: Path) -> set[str]:
     conn = _duckdb_module().connect(str(db_path))
     try:
@@ -89,6 +106,82 @@ def test_unified_store_initializes_declared_schema(tmp_path: Path):
             "rfq",
             "damper_type",
         }.issubset(_column_names(store, "dim_event"))
+    finally:
+        store.close()
+
+
+def test_unified_store_repairs_legacy_event_channel_damage_key(tmp_path: Path):
+    db_path = tmp_path / "legacy-damage.db"
+    conn = _duckdb_module().connect(str(db_path))
+    try:
+        conn.execute(
+            """
+            CREATE TABLE event_channel_damage (
+                event_id VARCHAR NOT NULL,
+                channel_key VARCHAR NOT NULL,
+                channel_name VARCHAR NOT NULL,
+                channel_unit VARCHAR,
+                base_damage DOUBLE,
+                scheduled_damage DOUBLE,
+                repeats INTEGER,
+                weight DOUBLE,
+                multiplier DOUBLE,
+                schedule_id BIGINT,
+                schedule_sha256 VARCHAR,
+                status VARCHAR NOT NULL,
+                stale_reason VARCHAR,
+                error VARCHAR,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO event_channel_damage (
+                event_id, channel_key, channel_name, base_damage, scheduled_damage,
+                repeats, weight, multiplier, schedule_id, schedule_sha256, status
+            )
+            VALUES
+                ('event-1', 'bj_x_force', 'BJ X Force', 1.0, 10.0, 5, 1.0, 2.0, 1, 'old', 'current'),
+                ('event-1', 'bj_x_force', 'BJ X Force', 2.0, 20.0, 5, 1.0, 2.0, 1, 'new', 'current')
+            """
+        )
+    finally:
+        conn.close()
+
+    store = UnifiedStore(db_path)
+    try:
+        assert _primary_key_columns(store, "event_channel_damage") == [
+            "event_id",
+            "channel_key",
+        ]
+        store.upsert_event_channel_damage(
+            event_id="event-1",
+            channel_key="bj_x_force",
+            channel_name="BJ X Force",
+            channel_unit="N",
+            base_damage=3.0,
+            scheduled_damage=30.0,
+            repeats=6,
+            weight=1.0,
+            multiplier=5.0,
+            schedule_id=2,
+            schedule_sha256="latest",
+            status="current",
+        )
+
+        row = store.get_event_channel_damage("event-1", "bj_x_force")
+        assert row is not None
+        assert row["base_damage"] == 3.0
+        assert row["schedule_sha256"] == "latest"
+        count = store.read_connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM event_channel_damage
+            WHERE event_id = 'event-1' AND channel_key = 'bj_x_force'
+            """
+        ).fetchone()[0]
+        assert count == 1
     finally:
         store.close()
 

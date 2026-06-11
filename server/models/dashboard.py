@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from server.models.damage import DamageFailureReport
+
 
 class ProgramIdsResponse(BaseModel):
     """Response for program IDs endpoint."""
@@ -359,6 +361,8 @@ class DurabilityScheduleAttachResponse(BaseModel):
     replaced_previous: bool = False
     previous_schedule_id: int | None = None
     parse_preview: DurabilitySchedulePreview
+    damage_task_id: str | None = None
+    damage_prerequisite_report: DamageFailureReport | None = None
 
 
 class DurabilityScheduleContextResponse(BaseModel):
@@ -371,6 +375,8 @@ class DurabilityScheduleContextResponse(BaseModel):
     schedule_sha256: str
     source_filename: str
     parse_preview: DurabilitySchedulePreview
+    damage_task_id: str | None = None
+    damage_prerequisite_report: DamageFailureReport | None = None
 
 
 class PlotAxisLabels(BaseModel):

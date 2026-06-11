@@ -134,7 +134,7 @@ export function UploadOperationModal({
               className="w-full sm:w-auto"
               onClick={() => onCancelUpload?.()}
             >
-              Cancel import
+              Cancel
             </Button>
           ) : (
             <span className="hidden sm:block sm:flex-1" />
