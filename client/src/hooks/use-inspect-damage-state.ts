@@ -8,6 +8,7 @@ import {
   uiTablePrefsToSession,
   type InspectDamageTablePreferences,
 } from '@/lib/inspect-damage-table-preferences';
+import { getDefaultDamageComparisonState } from '@/lib/damage-comparison-state';
 import { useSession } from './use-session';
 import type {
   InspectDamageState,
@@ -16,6 +17,7 @@ import type {
 
 const DEFAULT_INSPECT_DAMAGE_STATE: InspectDamageState = {
   table_preferences: undefined,
+  comparison: getDefaultDamageComparisonState(),
 };
 
 export function useInspectDamageState() {
@@ -32,6 +34,7 @@ export function useInspectDamageState() {
     [tablePreferences],
   );
   const isSessionReady = Boolean(session) && !isLoading;
+  const comparison = inspectDamageState.comparison ?? getDefaultDamageComparisonState();
 
   const updateInspectDamageState = useCallback(
     (patch: Partial<InspectDamageState>) => {
@@ -74,12 +77,23 @@ export function useInspectDamageState() {
     });
   }, [updateInspectDamageState]);
 
+  const updateComparison = useCallback(
+    (patch: Partial<NonNullable<InspectDamageState['comparison']>>) => {
+      updateInspectDamageState({
+        comparison: patch,
+      });
+    },
+    [updateInspectDamageState],
+  );
+
   return {
     tablePreferences,
     tablePreferencesUi,
+    comparison,
     setTablePreferences,
     updateTablePreferences,
     resetTablePreferences,
+    updateComparison,
     isSessionReady,
     isSessionLoading: isLoading,
   };

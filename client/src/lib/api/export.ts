@@ -2,7 +2,7 @@
  * Export/Import API — Parquet + ZIP portability (admin-only on server).
  */
 
-import { APIError, getApiBaseUrl, postFormDataWithProgress } from './client';
+import { APIError, fetchJsonGet, getApiBaseUrl, postFormDataWithProgress } from './client';
 
 export interface SchemaCompatibility {
   is_compatible: boolean;
@@ -272,20 +272,8 @@ export const exportApi = {
     return response.json();
   },
 
-  getParquetTaskStatus: async (taskId: string): Promise<TaskStatusResponse> => {
-    const response = await fetch(`${getApiBaseUrl()}/api/v1/export/database/parquet/task/${taskId}`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      throw new APIError(response.status, response.statusText, body);
-    }
-
-    return response.json();
-  },
+  getParquetTaskStatus: async (taskId: string): Promise<TaskStatusResponse> =>
+    fetchJsonGet(`${getApiBaseUrl()}/api/v1/export/database/parquet/task/${taskId}`),
 
   downloadParquetExport: async (taskId: string): Promise<Blob> => {
     const response = await fetchWithCredentials(

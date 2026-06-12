@@ -7,7 +7,12 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { uploadApi } from '@/lib/api/upload';
-import type { UploadResponse, UploadMetadata, UploadTaskEvent } from '@/types/upload';
+import type {
+  UploadResponse,
+  UploadMetadata,
+  UploadTaskEvent,
+  UploadProgressPhase,
+} from '@/types/upload';
 import { useUIStore } from '@/stores/ui-store';
 
 interface UseUploadOptions {
@@ -35,8 +40,6 @@ interface UseUploadReturn {
   /** Coarse phase for operation modal stepper */
   progressPhase: UploadProgressPhase;
 }
-
-export type UploadProgressPhase = 'uploading' | 'validating' | 'processing';
 
 function applyUploadTaskProgress(
   data: UploadTaskEvent,

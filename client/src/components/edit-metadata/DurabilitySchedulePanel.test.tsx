@@ -50,12 +50,6 @@ vi.mock('@/components/edit-metadata/DurabilityScheduleTable', () => ({
   ),
 }));
 
-vi.mock('@/components/edit-metadata/DamageValidationReportSummary', () => ({
-  DamageValidationReportSummary: ({ report }: { report: { summary: string } }) => (
-    <div data-testid="damage-validation-report-summary">{report.summary}</div>
-  ),
-}));
-
 vi.mock('@/stores/damage-calculation-store', () => ({
   useDamageCalculationStore: (selector: (state: { scopes: Record<string, unknown> }) => unknown) =>
     selector({ scopes: {} }),

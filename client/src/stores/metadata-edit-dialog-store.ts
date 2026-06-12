@@ -1,11 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-
-export type MetadataDialogSection =
-  | "edit-metadata"
-  | "assign-channels"
-  | "durability-schedule";
+import type { MetadataDialogSection } from "@/features/edit-metadata/lib/metadata-dialog-sections";
 
 export interface MetadataEditDialogScope {
   programId: string;

@@ -5,8 +5,8 @@ import type { DamageCalculationTaskOrigin } from '@/features/edit-metadata/lib/d
 import {
   setScheduleDamageReport,
   trackDamageCalculationTask,
-  type DamageCalculationScope,
 } from '@/stores/damage-calculation-store';
+import type { DamageCalculationScope } from '@/lib/damage-calculation-cache';
 import type { DamageFailureReport } from '@/types/api';
 
 export interface DamageTaskResponsePayload {

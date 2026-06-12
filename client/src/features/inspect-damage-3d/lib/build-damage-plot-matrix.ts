@@ -4,6 +4,10 @@ import type {
   InspectDamagePlotRow,
 } from './damage-plot-types';
 
+function isPlottableDamageStatus(status: string | undefined): boolean {
+  return status === 'ok' || status === 'current' || status === 'stale';
+}
+
 export function getDamageVersionOptions(rows: readonly InspectDamagePlotRow[]): string[] {
   return Array.from(
     new Set(
@@ -35,7 +39,7 @@ export function buildDamagePlotCells(
       const cell = row.damages[channel.key];
       const rawDamage = cell?.damage;
       if (
-        cell?.status !== 'ok' ||
+        !isPlottableDamageStatus(cell?.status) ||
         typeof rawDamage !== 'number' ||
         !Number.isFinite(rawDamage) ||
         rawDamage < 0

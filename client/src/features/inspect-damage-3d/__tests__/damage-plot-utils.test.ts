@@ -7,7 +7,13 @@ import {
   filterDamageRowsByVersion,
   getDamageVersionOptions,
 } from '../lib/build-damage-plot-matrix';
-import { getDamageColor, normalizeValue } from '../lib/damage-color-scale';
+import {
+  DAMAGE_COLOR_BANDS,
+  getDamageColor,
+  getDamageColorBandIndex,
+  normalizeValue,
+  rgbTripletToString,
+} from '../lib/damage-color-scale';
 import { computeDamagePlotLayout } from '../lib/damage-plot-layout';
 import type { InspectDamagePlotRow } from '../lib/damage-plot-types';
 
@@ -28,8 +34,8 @@ const rows: InspectDamagePlotRow[] = [
     program_id: 'P1',
     version: 'V1',
     damages: {
-      bj_x_force: { status: 'ok', damage: 0.1 },
-      bj_y_force: { status: 'ok', damage: 0 },
+      bj_x_force: { status: 'current', damage: 0.1 },
+      bj_y_force: { status: 'stale', damage: 0 },
       bj_z_force: { status: 'ok', damage: -1 },
       shock_x_force: { status: 'ok', damage: Number.NaN },
       shock_y_force: { status: 'error', damage: 0.3, error: 'calc failed' },
@@ -91,7 +97,7 @@ describe('damage plot utils', () => {
     expect(filterDamageRowsByVersion(rows, 'missing')).toHaveLength(0);
   });
 
-  it('builds cells and skips missing, errored, non-finite, and negative damage values', () => {
+  it('builds cells from ok/current/stale statuses and skips invalid values', () => {
     const cells = buildDamagePlotCells(filterDamageRowsByVersion(rows, 'V1'), DAMAGE_CHANNELS);
     expect(cells.map((cell) => cell.channelKey)).toEqual(['bj_x_force', 'bj_y_force']);
     expect(cells.map((cell) => cell.damage)).toEqual([0.1, 0]);
@@ -111,6 +117,15 @@ describe('damage plot utils', () => {
     expect(normalizeValue(5, 0, 10)).toBe(0.5);
     expect(normalizeValue(-1, 0, 10)).toBe(0);
     expect(normalizeValue(11, 0, 10)).toBe(1);
-    expect(getDamageColor(5, 0, 10)).toMatch(/^rgb\(/);
+  });
+
+  it('maps damage to discrete jet color bands', () => {
+    expect(getDamageColorBandIndex(0, 0, 10)).toBe(0);
+    expect(getDamageColorBandIndex(10, 0, 10)).toBe(DAMAGE_COLOR_BANDS.length - 1);
+    expect(getDamageColor(0, 0, 10)).toBe(rgbTripletToString(DAMAGE_COLOR_BANDS[0]!));
+    expect(getDamageColor(10, 0, 10)).toBe(
+      rgbTripletToString(DAMAGE_COLOR_BANDS[DAMAGE_COLOR_BANDS.length - 1]!),
+    );
+    expect(getDamageColor(5, 0, 10)).toBe(rgbTripletToString(DAMAGE_COLOR_BANDS[4]!));
   });
 });

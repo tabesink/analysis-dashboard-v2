@@ -2,6 +2,7 @@
  * Session state type definitions
  */
 
+import type { DamageComparisonState } from './damage-comparison';
 import type { DataState, GlobalFilters } from './api';
 
 /**
@@ -31,6 +32,7 @@ export interface InspectDamageTablePreferencesState {
  */
 export interface InspectDamageState {
   table_preferences?: InspectDamageTablePreferencesState;
+  comparison?: DamageComparisonState;
 }
 
 /**

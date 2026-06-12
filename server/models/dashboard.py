@@ -1,6 +1,6 @@
 """Dashboard-related Pydantic models."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -361,7 +361,17 @@ class DurabilityScheduleAttachResponse(BaseModel):
     replaced_previous: bool = False
     previous_schedule_id: int | None = None
     parse_preview: DurabilitySchedulePreview
+    schedule_command_outcome: (
+        Literal[
+            "calculation_started",
+            "reused_active_task",
+            "validation_blocked",
+            "failed_to_start",
+        ]
+        | None
+    ) = None
     damage_task_id: str | None = None
+    damage_task_status: Literal["validating", "calculating", "completed", "failed"] | None = None
     damage_prerequisite_report: DamageFailureReport | None = None
 
 
@@ -375,7 +385,17 @@ class DurabilityScheduleContextResponse(BaseModel):
     schedule_sha256: str
     source_filename: str
     parse_preview: DurabilitySchedulePreview
+    schedule_command_outcome: (
+        Literal[
+            "calculation_started",
+            "reused_active_task",
+            "validation_blocked",
+            "failed_to_start",
+        ]
+        | None
+    ) = None
     damage_task_id: str | None = None
+    damage_task_status: Literal["validating", "calculating", "completed", "failed"] | None = None
     damage_prerequisite_report: DamageFailureReport | None = None
 
 

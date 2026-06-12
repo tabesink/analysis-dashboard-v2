@@ -22,6 +22,10 @@
  */
 
 import type { SessionResponse, SessionState } from '@/types/session';
+import {
+  getDefaultDamageComparisonState,
+  mergeDamageComparisonState,
+} from '@/lib/damage-comparison-state';
 
 export const SESSION_ID_KEY = 'rsp_session_id';
 export const SESSION_BACKUP_KEY = 'rsp_session_backup';
@@ -32,7 +36,10 @@ const DEFAULT_SESSION_STATE: Omit<SessionState, 'session_id'> = {
   data_state: { program_ids: [], versions: [], selected_event_ids: [] },
   global_filters: {},
   rendered_event_ids: [],
-  inspect_damage_state: { table_preferences: undefined },
+  inspect_damage_state: {
+    table_preferences: undefined,
+    comparison: getDefaultDamageComparisonState(),
+  },
 };
 
 export function getDefaultSessionState(
@@ -44,6 +51,10 @@ export function getDefaultSessionState(
     ...backup,
     inspect_damage_state: {
       table_preferences: backup.inspect_damage_state?.table_preferences,
+      comparison: mergeDamageComparisonState(
+        undefined,
+        backup.inspect_damage_state?.comparison,
+      ),
     },
   };
 }
@@ -73,6 +84,7 @@ export function saveSessionBackup(session: SessionResponse): void {
       ui_preferences: session.ui_preferences,
       inspect_damage_state: {
         table_preferences: session.inspect_damage_state?.table_preferences,
+        comparison: session.inspect_damage_state?.comparison,
       },
     };
     sessionStorage.setItem(SESSION_BACKUP_KEY, JSON.stringify(backup));
@@ -130,6 +142,10 @@ export function mergeSessionUpdates(
       ...current.inspect_damage_state,
       ...updates.inspect_damage_state,
       table_preferences: tablePreferences,
+      comparison: mergeDamageComparisonState(
+        current.inspect_damage_state.comparison,
+        updates.inspect_damage_state.comparison,
+      ),
     };
   }
 

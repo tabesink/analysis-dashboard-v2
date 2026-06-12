@@ -1,8 +1,6 @@
 """Build Inspect Damage responses from persisted event_channel_damage rows."""
 
 from __future__ import annotations
-
-import json
 from typing import Any
 
 from server.models.damage import (
@@ -13,8 +11,6 @@ from server.models.damage import (
     DamageInspectRow,
     DamageInspectScopeState,
 )
-from server.services.schedule_damage_prerequisites import check_damage_prerequisites
-from server.services.scope_damage_repair import assess_scope_damage_repair_state
 
 
 def build_damage_inspect_response(
@@ -108,27 +104,11 @@ def _build_scope_state(
     has_current_results = any(str(row["status"]) == "current" for row in persisted)
     has_stale_results = any(str(row["status"]) == "stale" for row in persisted)
 
+    # Inspect is a strict query path: do not run repair/prerequisite policy checks here.
+    # Schedule upload/save owns command decisions and calculation start behavior.
     prerequisite_report: DamageFailureReport | None = None
     can_start_calculation = False
     needs_damage_repair = False
-    if has_active_schedule:
-        preview = json.loads(str(active_schedule["parse_preview_json"]))
-        repair_state = assess_scope_damage_repair_state(
-            db,
-            query_service,
-            program_id=program_id,
-            version=version,
-            preview=preview,
-        )
-        needs_damage_repair = repair_state == "needs_recalc"
-        prerequisite_report = check_damage_prerequisites(
-            db,
-            program_id=program_id,
-            version=version,
-            preview=preview,
-        )
-        can_start_calculation = prerequisite_report is None
-
     failure_report = _latest_failure_report(db, program_id=program_id, version=version)
     active_task = db.find_active_derived_data_task(program_id, version)
     active_damage_task_id = (

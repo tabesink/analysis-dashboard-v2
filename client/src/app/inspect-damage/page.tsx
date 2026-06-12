@@ -1,28 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
-  ArrowDownIcon,
-  ArrowUpIcon,
   Columns,
-  Database,
-  FilterIcon,
   Loader2,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuCheckboxItem,
-} from '@/components/ui/dropdown-menu';
 import {
   Popover,
   PopoverContent,
@@ -30,17 +21,18 @@ import {
 } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { LoadingSpinner, SidePanelLayout, SidePanelSection } from '@/components/shared';
+import { LoadingSpinner, SidePanelLayout } from '@/components/shared';
 import { Skeleton } from '@/components/ui/skeleton';
 import { GlobalFilters } from '@/components/dashboard/side-panel/GlobalFilters';
-import { HierarchicalEventTree } from '@/components/dashboard/shared/HierarchicalEventTree';
+import {
+  ComparisonLoadDataSections,
+} from '@/components/dashboard/side-panel';
 import { DamageEventTree } from '@/components/damage/DamageEventTree';
+import { FilterableColumnHeader } from '@/components/database-table';
 import { ColumnResizeHandle } from '@/components/upload/ColumnResizeHandle';
 import { useEventCatalog } from '@/hooks/use-event-catalog';
-import { useFilterState } from '@/hooks/use-filter-state';
 import { useInspectDamageState } from '@/hooks/use-inspect-damage-state';
 import { useInspectDamageSelectedEvents } from '@/hooks/use-inspect-damage-selected-events';
-import { useEventTreeColorProps } from '@/hooks/use-event-tree-color-props';
 import { useDashboardWorkspace } from '@/modules/dashboard-workspace';
 import { selectCanWrite, useAuthStore } from '@/stores/auth-store';
 import {
@@ -50,44 +42,52 @@ import {
   isDamageCalculationActive,
 } from '@/stores/damage-calculation-store';
 import type { InspectDamageViewState } from '@/features/inspect-damage/lib/inspect-damage-view-state';
-import { DamagePlotSidePanel } from '@/features/inspect-damage-3d/components/DamagePlotSidePanel';
-import { buildInspectDamagePlotRows } from '@/features/inspect-damage-3d/lib/build-inspect-damage-plot-rows';
+import { DAMAGE_CHANNELS } from '@/features/inspect-damage-3d/lib/damage-channel-axis';
+import { DamagePlotView } from '@/features/inspect-damage-3d/components/DamagePlotView';
+import {
+  InspectDamageCentralTabSwitcher,
+  type InspectDamageCentralTab,
+} from '@/features/inspect-damage/components/InspectDamageCentralTabSwitcher';
 import { DerivedDataOperationModal } from '@/features/edit-metadata/DerivedDataOperationModal';
-import { applyInspectDamageBackfill } from '@/features/inspect-damage/lib/apply-inspect-damage-backfill';
 import { applyInspectDamageCalculateResponse } from '@/features/inspect-damage/lib/apply-inspect-damage-calculate';
 import {
-  inspectDamageScopeKey,
-  planInspectDamageBackfillAttempts,
-} from '@/features/inspect-damage/lib/plan-inspect-damage-backfill-attempts';
+  buildDamageComparisonViewModel,
+  getComparisonInspectEventIds,
+  type DamageComparisonViewModel,
+} from '@/features/inspect-damage/lib/build-damage-comparison-view-model';
 import {
   isDamageCellDisplayable,
   isDamageCellStale,
   resolveInspectDamageViewState,
-  toPlotDamageCell,
 } from '@/features/inspect-damage/lib/inspect-damage-view-state';
 import { damageApi } from '@/lib/api';
+import {
+  filterRowsByColumnFilters,
+  MIN_COLUMN_PX,
+  PROGRAM_ID_DEFAULT_PX,
+  PROGRAM_ID_KEY,
+  toggleSortField,
+  type SortDirection,
+  updateColumnFilter,
+  widthForValues,
+} from '@/lib/database-table/shared';
 import {
   getDefaultColumnFilters,
   mergeTreeExpansionWithTreeKeys,
   resolvePersistedExpansion,
   tablePreferencesUiEqual,
   treeKeysFromEvents,
-  type SortDirection,
 } from '@/lib/inspect-damage-table-preferences';
 import type {
   DamageInspectResponse,
   DamageInspectScopeState,
   EventMetadata,
 } from '@/types/api';
+import type { DamageComparisonState } from '@/types/damage-comparison';
 import { formatDamage } from '../../lib/inspect-damage-format';
 
-const CHAR_PX = 7.2;
-const PADDING_PX = 32;
-const MIN_COLUMN_PX = 80;
-const MAX_COLUMN_PX = 400;
 const CHANNEL_COL_WIDTH = 56;
-const PROGRAM_ID_DEFAULT_PX = 250;
-const PROGRAM_ID_KEY = 'programId';
+const DEFAULT_COMPARISON_CHANNEL_KEYS = DAMAGE_CHANNELS.map((channel) => channel.key);
 
 const METADATA_COLUMNS = [
   { key: 'work_order', label: 'Work Order' },
@@ -101,17 +101,6 @@ type ColumnDefinition = {
 
 type SortField = string;
 
-const widthForValues = (label: string, values: string[]): number => {
-  const longest = values.reduce(
-    (max, value) => Math.max(max, value.length),
-    label.length,
-  );
-  return Math.min(
-    MAX_COLUMN_PX,
-    Math.max(MIN_COLUMN_PX, Math.ceil(longest * CHAR_PX) + PADDING_PX),
-  );
-};
-
 function getColumnValue(event: EventMetadata, columnKey: string): string {
   if (columnKey === 'work_order') return event.work_order ?? '';
   if (columnKey === 'job_number') return event.job_number ?? '';
@@ -124,23 +113,34 @@ export default function InspectDamagePage() {
   const authStatus = useAuthStore((s) => s.status);
   const canWrite = useAuthStore(selectCanWrite);
   const [sidePanelCollapsed, setSidePanelCollapsed] = useState(false);
+  const [centralTab, setCentralTab] = useState<InspectDamageCentralTab>('table');
   const [activeCalculateScope, setActiveCalculateScope] = useState<DamageInspectScopeState | null>(
     null,
   );
-  const attemptedBackfillRef = useRef(new Set<string>());
-  const { dataState, updateDataState, isSessionReady } = useFilterState();
+  const { comparison, updateComparison, isSessionReady } = useInspectDamageState();
   const { events, isLoading: isEventsLoading } = useEventCatalog();
   useDashboardWorkspace();
-  const selectedEventIds = dataState.selected_event_ids;
+  const effectiveComparison = useMemo<DamageComparisonState>(
+    () =>
+      comparison.selected_channel_keys.length > 0
+        ? comparison
+        : {
+            ...comparison,
+            selected_channel_keys: DEFAULT_COMPARISON_CHANNEL_KEYS,
+          },
+    [comparison],
+  );
+  const comparisonInspectEventIds = useMemo(
+    () => getComparisonInspectEventIds(effectiveComparison),
+    [effectiveComparison],
+  );
+  const inspectEventIds = comparisonInspectEventIds;
   const { selectedEvents } = useInspectDamageSelectedEvents(
-    selectedEventIds,
+    inspectEventIds,
     events,
   );
-  const colorProps = useEventTreeColorProps();
   const isPanelReady = isSessionReady && !isEventsLoading;
-  const expandSidePanel = useCallback(() => setSidePanelCollapsed(false), []);
-
-  const selectedSet = useMemo(() => new Set(selectedEventIds), [selectedEventIds]);
+  const expandSidePanel = () => setSidePanelCollapsed(false);
   const inspectScopes = useMemo(
     () =>
       Array.from(
@@ -162,9 +162,9 @@ export default function InspectDamagePage() {
     isLoading: isInspectLoading,
     error: inspectError,
   } = useQuery({
-    queryKey: ['damage-inspect', selectedEventIds],
-    queryFn: () => damageApi.inspect(selectedEventIds),
-    enabled: selectedEventIds.length > 0,
+    queryKey: ['damage-inspect', inspectEventIds],
+    queryFn: () => damageApi.inspect(inspectEventIds),
+    enabled: inspectEventIds.length > 0,
     refetchInterval: isDamageCalculationRunning ? 2000 : false,
   });
   const viewState = useMemo(
@@ -178,25 +178,6 @@ export default function InspectDamagePage() {
     }
     return map;
   }, [damageResponse]);
-  const plotDamageRowsByEventId = useMemo(() => {
-    const map = new Map<string, DamageInspectResponse['rows'][number]>();
-    for (const row of damageResponse?.rows ?? []) {
-      map.set(row.event_id, {
-        ...row,
-        damages: Object.fromEntries(
-          Object.entries(row.damages).map(([channelKey, cell]) => [
-            channelKey,
-            toPlotDamageCell(cell),
-          ]),
-        ),
-      });
-    }
-    return map;
-  }, [damageResponse]);
-  const damagePlotRows = useMemo(
-    () => buildInspectDamagePlotRows({ selectedEvents, damageRowsByEventId: plotDamageRowsByEventId }),
-    [plotDamageRowsByEventId, selectedEvents],
-  );
   const channelMetadata = useMemo(() => {
     const map = new Map<string, DamageInspectResponse['channels'][number]>();
     for (const channel of damageResponse?.channels ?? []) {
@@ -204,6 +185,14 @@ export default function InspectDamagePage() {
     }
     return map;
   }, [damageResponse]);
+  const comparisonViewModel = useMemo(
+    () =>
+      buildDamageComparisonViewModel({
+        comparison: effectiveComparison,
+        response: damageResponse,
+      }),
+    [damageResponse, effectiveComparison],
+  );
 
   const calculateMutation = useMutation({
     mutationFn: (scope: DamageInspectScopeState) =>
@@ -235,96 +224,6 @@ export default function InspectDamagePage() {
       router.replace('/login');
     }
   }, [authStatus, router]);
-
-  useEffect(() => {
-    if (!canWrite || !damageResponse || isInspectLoading) {
-      return;
-    }
-
-    const scopes = planInspectDamageBackfillAttempts({
-      response: damageResponse,
-      canWrite,
-      attemptedScopeKeys: attemptedBackfillRef.current,
-      isScopeActive: (scope) =>
-        isDamageCalculationActive({
-          programId: scope.program_id,
-          version: scope.version,
-        }),
-    });
-
-    for (const scope of scopes) {
-      const key = inspectDamageScopeKey(scope);
-      attemptedBackfillRef.current.add(key);
-      setActiveCalculateScope(scope);
-
-      void applyInspectDamageBackfill({ scope, queryClient }).then((result) => {
-        if (result === 'damage_task' || result === 'reused_active_task') {
-          toast.success('Damage calculation started');
-        }
-      });
-    }
-  }, [canWrite, damageResponse, isInspectLoading, queryClient]);
-
-  const isEventChecked = useCallback(
-    (eventId: string) => selectedSet.has(eventId),
-    [selectedSet],
-  );
-
-  const setSelectedEventIds = useCallback(
-    (next: string[] | ((current: string[]) => string[])) => {
-      const resolved = typeof next === 'function' ? next(selectedEventIds) : next;
-      updateDataState({ selected_event_ids: resolved });
-    },
-    [selectedEventIds, updateDataState],
-  );
-
-  const handleToggleEvent = useCallback(
-    (eventId: string) => {
-      const event = events.find((item) => item.event_id === eventId);
-      if (event?.selectable_for_plotting === false) return;
-      setSelectedEventIds((current) =>
-        current.includes(eventId)
-          ? current.filter((id) => id !== eventId)
-          : [...current, eventId],
-      );
-    },
-    [events, setSelectedEventIds],
-  );
-
-  const handleBatchToggle = useCallback(
-    (eventIds: string[], checked: boolean) => {
-      const selectableIds = eventIds.filter((id) => {
-        const event = events.find((item) => item.event_id === id);
-        return event?.selectable_for_plotting !== false;
-      });
-      const selectableSet = new Set(selectableIds);
-      setSelectedEventIds((current) =>
-        checked
-          ? [...new Set([...current, ...selectableIds])]
-          : current.filter((id) => !selectableSet.has(id)),
-      );
-    },
-    [events, setSelectedEventIds],
-  );
-
-  const handleSelectAll = useCallback(() => {
-    setSelectedEventIds(
-      events
-        .filter((event) => event.selectable_for_plotting !== false)
-        .map((event) => event.event_id),
-    );
-  }, [events, setSelectedEventIds]);
-
-  const handleSelectNone = useCallback(() => {
-    updateDataState({ selected_event_ids: [], program_ids: [], versions: [] });
-  }, [updateDataState]);
-
-  const handleCalculateDamage = useCallback(
-    (scope: DamageInspectScopeState) => {
-      calculateMutation.mutate(scope);
-    },
-    [calculateMutation],
-  );
 
   if (authStatus === 'loading' || authStatus === 'idle') {
     return (
@@ -359,17 +258,13 @@ export default function InspectDamagePage() {
                     <div className="py-1">
                       <Separator className="bg-border/70" />
                     </div>
-                    <DamageLoadDataPanel
+                    <ComparisonLoadDataSections
+                      comparison={comparison}
+                      events={events}
+                      isLoading={isEventsLoading}
+                      onUpdateComparison={updateComparison}
                       isCollapsed={sidePanelCollapsed}
                       onExpand={expandSidePanel}
-                      events={events}
-                      selectedCount={selectedEventIds.length}
-                      isEventChecked={isEventChecked}
-                      onToggleEvent={handleToggleEvent}
-                      onBatchSetChecked={handleBatchToggle}
-                      onSelectAll={handleSelectAll}
-                      onSelectNone={handleSelectNone}
-                      colorProps={colorProps}
                     />
                   </>
                 )}
@@ -384,15 +279,18 @@ export default function InspectDamagePage() {
               events={selectedEvents}
               damageRowsByEventId={damageRowsByEventId}
               channelMetadata={channelMetadata}
+              comparison={effectiveComparison}
+              comparisonViewModel={comparisonViewModel}
+              onUpdateComparison={updateComparison}
+              centralTab={centralTab}
+              onCentralTabChange={setCentralTab}
               isLoading={isInspectLoading || isInspectFetching}
               inspectError={inspectError}
               viewState={viewState}
               isCalculatingDamage={calculateMutation.isPending || isDamageCalculationRunning}
-              onCalculateDamage={handleCalculateDamage}
             />
           </Card>
         </div>
-        <DamagePlotSidePanel rows={damagePlotRows} />
       </div>
       {activeModalState && activeModalScope ? (
         <DerivedDataOperationModal
@@ -416,89 +314,32 @@ export default function InspectDamagePage() {
   );
 }
 
-function DamageLoadDataPanel({
-  isCollapsed = false,
-  onExpand,
-  events,
-  selectedCount,
-  isEventChecked,
-  onToggleEvent,
-  onBatchSetChecked,
-  onSelectAll,
-  onSelectNone,
-  colorProps,
-}: {
-  isCollapsed?: boolean;
-  onExpand?: () => void;
-  events: EventMetadata[];
-  selectedCount: number;
-  isEventChecked: (eventId: string) => boolean;
-  onToggleEvent: (eventId: string) => void;
-  onBatchSetChecked: (eventIds: string[], checked: boolean) => void;
-  onSelectAll: () => void;
-  onSelectNone: () => void;
-  colorProps: Partial<ComponentProps<typeof HierarchicalEventTree>>;
-}) {
-  const subtitle =
-    selectedCount > 0
-      ? `${selectedCount} selected`
-      : 'Select events for analysis';
-
-  if (isCollapsed) {
-    return (
-      <Button
-        variant="ghost"
-        onClick={onExpand}
-        className="p-2 rounded-lg transition-all text-muted-foreground hover:text-foreground hover:bg-accent"
-        aria-label="Expand Load Data section"
-        title="Load Data"
-      >
-        <Database className="h-4 w-4" />
-      </Button>
-    );
-  }
-
-  return (
-    <SidePanelSection
-      title="Load Data"
-      subtitle={subtitle}
-      defaultExpanded={true}
-      contentClassName="overflow-x-auto"
-    >
-      <HierarchicalEventTree
-        events={events}
-        isChecked={isEventChecked}
-        onToggleEvent={onToggleEvent}
-        onBatchSetChecked={onBatchSetChecked}
-        onSelectAll={onSelectAll}
-        onSelectNone={onSelectNone}
-        emptyMessage="No events available"
-        showExpandCollapseControls={false}
-        defaultExpandPrograms={true}
-        {...colorProps}
-      />
-    </SidePanelSection>
-  );
-}
-
 function DamageTable({
   events,
   damageRowsByEventId,
   channelMetadata,
+  comparison,
+  comparisonViewModel,
+  onUpdateComparison,
+  centralTab,
+  onCentralTabChange,
   isLoading,
   inspectError,
   viewState,
   isCalculatingDamage,
-  onCalculateDamage,
 }: {
   events: EventMetadata[];
   damageRowsByEventId: Map<string, DamageInspectResponse['rows'][number]>;
   channelMetadata: Map<string, DamageInspectResponse['channels'][number]>;
+  comparison: DamageComparisonState;
+  comparisonViewModel: DamageComparisonViewModel;
+  onUpdateComparison: (patch: Partial<DamageComparisonState>) => void;
+  centralTab: InspectDamageCentralTab;
+  onCentralTabChange: (tab: InspectDamageCentralTab) => void;
   isLoading: boolean;
   inspectError: Error | null;
   viewState: InspectDamageViewState;
   isCalculatingDamage: boolean;
-  onCalculateDamage: (scope: DamageInspectScopeState) => void;
 }) {
   const channelColumnDefinitions = useMemo<ColumnDefinition[]>(
     () =>
@@ -724,25 +565,16 @@ function DamageTable({
 
   const handleSort = useCallback(
     (field: SortField) => {
-      if (sortField === field) {
-        setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-      } else {
-        setSortField(field);
-        setSortDirection('asc');
-      }
+      const next = toggleSortField(sortField, sortDirection, field);
+      setSortField(next.sortField);
+      setSortDirection(next.sortDirection);
     },
-    [sortField],
+    [sortDirection, sortField],
   );
 
   const handleColumnFilterChange = useCallback(
     (column: string, value: string, checked: boolean) => {
-      setColumnFilters((prev) => {
-        const currentFilters = prev[column] || [];
-        if (checked) {
-          return { ...prev, [column]: [...currentFilters, value] };
-        }
-        return { ...prev, [column]: currentFilters.filter((item) => item !== value) };
-      });
+      setColumnFilters((prev) => updateColumnFilter(prev, column, value, checked));
     },
     [],
   );
@@ -820,16 +652,10 @@ function DamageTable({
     return uniqueValues;
   }, [events]);
 
-  const filteredEvents = useMemo(() => {
-    return events.filter((event) => {
-      for (const [column, selectedValues] of Object.entries(columnFilters)) {
-        if (selectedValues.length === 0) continue;
-        const eventValue = getColumnValue(event, column);
-        if (!selectedValues.includes(eventValue)) return false;
-      }
-      return true;
-    });
-  }, [columnFilters, events]);
+  const filteredEvents = useMemo(
+    () => filterRowsByColumnFilters(events, columnFilters, getColumnValue),
+    [columnFilters, events],
+  );
 
   const sortedEvents = useMemo(() => {
     return [...filteredEvents].sort((a, b) => {
@@ -867,106 +693,34 @@ function DamageTable({
     return programIdWidth + metadataAndChannelWidth;
   }, [columnWidths, programIdWidth, visibleColumnDefs]);
 
-  const renderFilterableColumnHeader = useCallback(
-    (label: string, field: SortField, width: number) => (
-      <div
-        key={field}
-        className="relative shrink-0 px-2"
-        style={{ width }}
-      >
-        <div className="flex items-center justify-center gap-1">
-          <button
-            type="button"
-            onClick={() => handleSort(field)}
-            className="flex items-center justify-center gap-1 hover:text-foreground transition-colors text-center min-w-0"
-          >
-            <span className="truncate">{label}</span>
-            {sortField === field && (
-              <span className="text-primary shrink-0">
-                {sortDirection === 'asc' ? (
-                  <ArrowUpIcon size={10} />
-                ) : (
-                  <ArrowDownIcon size={10} />
-                )}
-              </span>
-            )}
-          </button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className={`shrink-0 p-1 rounded hover:bg-accent transition-colors ${
-                  columnFilters[field]?.length > 0
-                    ? 'text-primary'
-                    : 'text-muted-foreground/50 hover:text-muted-foreground'
-                }`}
-                onClick={(event) => event.stopPropagation()}
-              >
-                <FilterIcon size={10} />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="w-48 max-h-[280px] overflow-y-auto rounded-lg shadow-lg"
-            >
-              {getUniqueValues[field]?.length > 0 ? (
-                getUniqueValues[field].map((value) => (
-                  <DropdownMenuCheckboxItem
-                    key={value}
-                    checked={columnFilters[field]?.includes(value) || false}
-                    onCheckedChange={(checked: boolean) =>
-                      handleColumnFilterChange(field, value, checked)
-                    }
-                    className="text-xs"
-                  >
-                    {value}
-                  </DropdownMenuCheckboxItem>
-                ))
-              ) : (
-                <div className="px-3 py-2 text-xs text-muted-foreground">
-                  No values
-                </div>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        <ColumnResizeHandle
-          width={width}
-          onResize={(next) => setColumnWidth(field, next)}
-        />
-      </div>
-    ),
-    [
-      columnFilters,
-      getUniqueValues,
-      handleColumnFilterChange,
-      handleSort,
-      setColumnWidth,
-      sortDirection,
-      sortField,
-    ],
-  );
-
   return (
     <>
       <div className="shrink-0 flex items-center justify-between border-b px-4 py-3">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-medium">Inspect Damage</p>
+        <div className="flex min-h-9 items-center gap-2">
+          <InspectDamageCentralTabSwitcher
+            activeTab={centralTab}
+            onTabChange={onCentralTabChange}
+          />
           {(isLoading || isCalculatingDamage) && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {isCalculatingDamage ? 'Calculating damage...' : 'Loading damage...'}
+              {isCalculatingDamage ? 'Calculation running...' : 'Loading saved damage results...'}
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex min-h-9 items-center gap-2">
           <Popover>
             <PopoverTrigger asChild>
               <Button
                 type="button"
                 variant="outline"
                 aria-label="Column visibility"
-                className="min-w-23 justify-center"
+                aria-hidden={centralTab !== 'table'}
+                tabIndex={centralTab !== 'table' ? -1 : undefined}
+                className={cn(
+                  'min-w-[5.75rem] justify-center',
+                  centralTab !== 'table' && 'invisible pointer-events-none',
+                )}
               >
                 <Columns className="size-4" />
                 Cols
@@ -1013,8 +767,26 @@ function DamageTable({
         </div>
       </div>
 
-      <CardContent className="flex-1 min-h-0 overflow-auto p-0">
-        {events.length === 0 ? (
+      <CardContent
+        className={
+          centralTab === 'inspect'
+            ? 'flex min-h-0 flex-1 flex-col overflow-hidden p-0'
+            : 'min-h-0 flex-1 overflow-auto p-0'
+        }
+      >
+        {centralTab === 'inspect' ? (
+          inspectError ? (
+            <div className="m-3 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              {inspectError.message}
+            </div>
+          ) : (
+            <DamagePlotView
+              comparison={comparison}
+              comparisonViewModel={comparisonViewModel}
+              onUpdateComparison={onUpdateComparison}
+            />
+          )
+        ) : events.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-[400px] text-center">
             <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
               <Activity className="h-8 w-8 text-muted-foreground" />
@@ -1033,32 +805,19 @@ function DamageTable({
                 {inspectError.message}
               </div>
             ) : null}
-            {viewState.showStaleWarning ? (
-              <div className="m-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-950">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            {viewState.runningScopes.length > 0 ? (
+              <div className="m-3 flex items-start gap-2 rounded-lg border border-blue-500/40 bg-blue-500/10 px-4 py-3 text-sm text-blue-950">
+                <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
                 <div className="flex-1">
-                  <p className="font-medium">Stale damage values shown</p>
-                  <p className="mt-1 text-xs text-amber-900/80">
-                    Channel or schedule changes made these values outdated. Recalculate damage when
-                    prerequisites are current.
+                  <p className="font-medium">Calculation running</p>
+                  <p className="mt-1 text-xs text-blue-900/80">
+                    Loading saved damage results while processing continues for:
                   </p>
-                  {viewState.showCalculateAction && !viewState.showEmptyState ? (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {viewState.calculateScopes.map((scope) => (
-                        <Button
-                          key={`stale-${scope.program_id}::${scope.version}`}
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={isCalculatingDamage}
-                          onClick={() => onCalculateDamage(scope)}
-                          className="h-8 px-4 text-xs"
-                        >
-                          Calculate Damage ({scope.program_id} / {scope.version})
-                        </Button>
-                      ))}
-                    </div>
-                  ) : null}
+                  <p className="mt-2 text-xs font-medium text-blue-900">
+                    {viewState.runningScopes
+                      .map((scope) => `${scope.program_id} / ${scope.version}`)
+                      .join(', ')}
+                  </p>
                 </div>
               </div>
             ) : null}
@@ -1083,13 +842,21 @@ function DamageTable({
                 />
               </div>
               <div className="flex items-center">
-                {visibleMetadataColumns.map((col) =>
-                  renderFilterableColumnHeader(
-                    col.label,
-                    col.key,
-                    columnWidths[col.key] ?? MIN_COLUMN_PX,
-                  ),
-                )}
+                {visibleMetadataColumns.map((col) => (
+                  <FilterableColumnHeader
+                    key={col.key}
+                    label={col.label}
+                    field={col.key}
+                    width={columnWidths[col.key] ?? MIN_COLUMN_PX}
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    columnFilters={columnFilters}
+                    onColumnFilterChange={handleColumnFilterChange}
+                    uniqueValues={getUniqueValues}
+                    onResize={(next) => setColumnWidth(col.key, next)}
+                  />
+                ))}
                 {visibleChannelColumns.map((col) => {
                   const metadata = channelMetadata.get(col.key);
                   const title = metadata
@@ -1110,7 +877,7 @@ function DamageTable({
                         {col.label}
                         {columnHasStaleValues ? (
                           <span className="rounded bg-amber-500/15 px-1 text-[10px] font-medium text-amber-800">
-                            Stale
+                            Outdated
                           </span>
                         ) : null}
                       </span>
@@ -1134,8 +901,8 @@ function DamageTable({
                 const row = damageRowsByEventId.get(eventId);
                 const cell = row?.damages[channelKey];
                 if (isLoading && !cell) return '...';
-                if (!isDamageCellDisplayable(cell)) return '';
-                if (cell?.status === 'error') {
+                if (!cell || !isDamageCellDisplayable(cell)) return '';
+                if (cell.status === 'error') {
                   return (
                     <span
                       className="inline-flex items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
@@ -1146,13 +913,23 @@ function DamageTable({
                     </span>
                   );
                 }
+                if (cell.status === 'unavailable') {
+                  return (
+                    <span
+                      className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                      title={cell.error ?? 'No mapped channel data is available for this event'}
+                    >
+                      Unavailable
+                    </span>
+                  );
+                }
                 const value = formatDamage(cell.damage);
                 if (!isDamageCellStale(cell)) return value;
                 return (
                   <span className="inline-flex items-center gap-1">
                     <span>{value}</span>
                     <span className="rounded bg-amber-500/15 px-1 text-[10px] font-medium text-amber-800">
-                      Stale
+                      Outdated
                     </span>
                   </span>
                 );

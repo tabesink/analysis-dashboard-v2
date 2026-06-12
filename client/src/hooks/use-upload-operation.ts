@@ -5,6 +5,7 @@ import type { UploadMetadata, UploadResponse } from '@/types/upload';
 import { useUpload } from '@/hooks/use-upload';
 import { buildUploadCompletionResult } from '@/features/database-upload/upload-completion-result';
 import type {
+  UploadCompletionResult,
   UploadOperationModalProps,
   UploadWizardStep,
 } from '@/features/database-upload/upload-operation-types';

@@ -10,6 +10,7 @@ export type InspectDamageViewState = {
   showStaleWarning: boolean;
   showCalculateAction: boolean;
   showPrerequisiteGuidance: boolean;
+  runningScopes: DamageInspectScopeState[];
   calculateScopes: DamageInspectScopeState[];
   prerequisiteReports: DamageFailureReport[];
   failureReports: DamageFailureReport[];
@@ -24,6 +25,7 @@ export function resolveInspectDamageViewState(params: {
   const hasStaleResults = scopes.some((scope) => scope.has_stale_results);
   const hasDisplayableResults = (params.response?.channels.length ?? 0) > 0;
   const showStaleWarning = Boolean(params.response?.has_stale_values);
+  const runningScopes = scopes.filter((scope) => Boolean(scope.active_damage_task_id));
   const calculateScopes = scopes.filter(
     (scope) => scope.can_start_calculation && scope.has_active_schedule,
   );
@@ -48,6 +50,7 @@ export function resolveInspectDamageViewState(params: {
     showStaleWarning,
     showCalculateAction,
     showPrerequisiteGuidance,
+    runningScopes,
     calculateScopes,
     prerequisiteReports,
     failureReports,
@@ -59,27 +62,10 @@ export function isDamageCellStale(cell: DamageCell | undefined): boolean {
 }
 
 export function isDamageCellDisplayable(cell: DamageCell | undefined): boolean {
-  return cell?.status === 'current' || cell?.status === 'stale' || cell?.status === 'error';
-}
-
-export function toPlotDamageCell(cell: DamageCell): DamageCell {
-  if (cell.status === 'error') {
-    return {
-      damage: cell.damage,
-      status: 'error',
-      error: cell.error ?? null,
-    };
-  }
-  if (!isDamageCellDisplayable(cell)) {
-    return {
-      damage: cell.damage,
-      status: cell.status,
-      error: cell.error ?? null,
-    };
-  }
-  return {
-    damage: cell.damage,
-    status: 'ok',
-    error: cell.error ?? null,
-  };
+  return (
+    cell?.status === 'current' ||
+    cell?.status === 'stale' ||
+    cell?.status === 'error' ||
+    cell?.status === 'unavailable'
+  );
 }

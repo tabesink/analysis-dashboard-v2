@@ -609,3 +609,188 @@ def test_damage_calculation_persists_current_rows_for_mixed_fixture_batch(
         assert len(event_rows) == 12
         assert all(row["base_damage"] is not None for row in event_rows)
         assert all(row["scheduled_damage"] is not None for row in event_rows)
+
+
+def test_damage_task_persists_mixed_cell_outcomes_for_one_scope_run(
+    test_database,
+    test_cache,
+    test_settings: Settings,
+) -> None:
+    uploader = test_database.create_user("damage_mixed_outcomes_uploader")
+    event_id = "event-mixed-outcomes"
+    test_database.insert_event(
+        event_id=event_id,
+        program_id="P-DMG-MIXED-OUTCOMES",
+        version="V1",
+        uploaded_by_user_id=uploader,
+        status="Approved",
+        source_file="pattern_a_event.csv",
+    )
+
+    class _QueryStub:
+        def get_damage_channel_series(self, event_ids: list[str]) -> list[dict[str, object]]:
+            assert event_ids == [event_id]
+            return [
+                {
+                    "channel_key": "ch_unavailable",
+                    "channel_name": "Unavailable Channel",
+                    "unit": "N",
+                    "status": "unavailable",
+                    "error": "Missing channel source data",
+                },
+                {
+                    "channel_key": "ch_current",
+                    "channel_name": "Current Channel",
+                    "unit": "N",
+                    "values": [1.0, 2.0, 3.0],
+                },
+                {
+                    "channel_key": "ch_error",
+                    "channel_name": "Error Channel",
+                    "unit": "N",
+                    "values": [4.0, 5.0, 6.0],
+                },
+            ]
+
+    class _CalculatorStub:
+        def calculate_channel(self, series: ChannelSeries) -> ChannelDamageResult:
+            if series.channel_key == "ch_error":
+                return ChannelDamageResult(
+                    channel_key=series.channel_key,
+                    channel_name=series.channel_name,
+                    unit=series.unit,
+                    damage=None,
+                    status="error",
+                    error="Numerical overflow",
+                )
+            return ChannelDamageResult(
+                channel_key=series.channel_key,
+                channel_name=series.channel_name,
+                unit=series.unit,
+                damage=0.25,
+                status="ok",
+            )
+
+    task_id = "damage-mixed-outcomes-task"
+    test_database.create_upload_task(
+        task_id=task_id,
+        created_by_user_id=uploader,
+        total_events=1,
+        task_kind="damage_calculation",
+        phase="validating",
+        scope={"program_id": "P-DMG-MIXED-OUTCOMES", "version": "V1"},
+    )
+
+    service = DamageCalculationTaskService(
+        test_database,
+        _QueryStub(),
+        calculator=_CalculatorStub(),
+    )
+    service._run_damage_calculation_task(
+        task_id=task_id,
+        program_id="P-DMG-MIXED-OUTCOMES",
+        version="V1",
+        active_schedule={"schedule_id": 1, "schedule_sha256": "sha-mixed"},
+        preview={
+            "multiplier": 2.0,
+            "entries": [{"pattern": "pattern_a", "repeats": 5, "weight": 0.5}],
+            "event_rows": [
+                {
+                    "event_id": event_id,
+                    "rsp_file_name": "pattern_a_event.rsp",
+                    "rsp_event_name": "pattern_a_event",
+                    "pattern": "pattern_a",
+                    "repeats": 5,
+                    "weight": 0.5,
+                    "schedule_sequence": 1,
+                }
+            ],
+        },
+    )
+
+    task = test_database.get_upload_task(task_id)
+    assert task is not None
+    assert task["status"] == "completed"
+    assert task["phase"] == "completed"
+
+    unavailable = test_database.get_event_channel_damage(event_id, "ch_unavailable")
+    assert unavailable is not None
+    assert unavailable["status"] == "unavailable"
+    assert unavailable["base_damage"] is None
+    assert unavailable["scheduled_damage"] is None
+    assert unavailable["error"] == "Missing channel source data"
+
+    current = test_database.get_event_channel_damage(event_id, "ch_current")
+    assert current is not None
+    assert current["status"] == "current"
+    assert current["base_damage"] == pytest.approx(0.25)
+    assert current["scheduled_damage"] == pytest.approx(1.25)
+
+    error = test_database.get_event_channel_damage(event_id, "ch_error")
+    assert error is not None
+    assert error["status"] == "error"
+    assert error["base_damage"] is None
+    assert error["scheduled_damage"] is None
+    assert error["error"] == "Numerical overflow"
+
+
+def test_damage_task_unexpected_exception_persists_failure_report(
+    test_database,
+    test_cache,
+    test_settings: Settings,
+) -> None:
+    uploader = test_database.create_user("damage_task_error_uploader")
+    event_id = "event-damage-task-error"
+    test_database.insert_event(
+        event_id=event_id,
+        program_id="P-DMG-TASK-ERROR",
+        version="V1",
+        uploaded_by_user_id=uploader,
+        status="Approved",
+        source_file="pattern_a_event.csv",
+    )
+
+    class _RaisingQueryStub:
+        def get_damage_channel_series(self, _event_ids: list[str]) -> list[dict[str, object]]:
+            raise RuntimeError("simulated calculation crash")
+
+    service = DamageCalculationTaskService(test_database, _RaisingQueryStub(), calculator=None)
+    task_id = "damage-unexpected-failure-task"
+    test_database.create_upload_task(
+        task_id=task_id,
+        created_by_user_id=uploader,
+        total_events=1,
+        task_kind="damage_calculation",
+        phase="validating",
+        scope={"program_id": "P-DMG-TASK-ERROR", "version": "V1"},
+    )
+
+    service._run_damage_calculation_task(
+        task_id=task_id,
+        program_id="P-DMG-TASK-ERROR",
+        version="V1",
+        active_schedule={"schedule_id": 1, "schedule_sha256": "sha-failure"},
+        preview={
+            "multiplier": 1.0,
+            "entries": [{"pattern": "pattern_a", "repeats": 2, "weight": 1.0}],
+            "event_rows": [
+                {
+                    "event_id": event_id,
+                    "rsp_file_name": "pattern_a_event.rsp",
+                    "rsp_event_name": "pattern_a_event",
+                    "pattern": "pattern_a",
+                    "repeats": 2,
+                    "weight": 1.0,
+                    "schedule_sequence": 1,
+                }
+            ],
+        },
+    )
+
+    task = test_database.get_upload_task(task_id)
+    assert task is not None
+    assert task["status"] == "failed"
+    assert task["phase"] == "failed"
+    assert "simulated calculation crash" in str(task["error"])
+    assert task["result_json"]["failure_report"]["summary"] == "Damage calculation task failed unexpectedly"
+    assert task["result_json"]["failure_report"]["issues"][0]["field"] == "event_id"

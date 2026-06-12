@@ -9,6 +9,62 @@ from fastapi.testclient import TestClient
 from tests.server.routers.conftest import login
 
 
+def test_damage_inspect_is_query_only_and_skips_repair_prerequisite_checks(
+    auth_client: TestClient,
+    monkeypatch,
+) -> None:
+    register = auth_client.post(
+        "/api/v1/auth/register",
+        json={"username": "damage_query_only_user", "password": "damagepassword123"},
+    )
+    assert register.status_code == 201, register.text
+    owner_id = register.json()["id"]
+    login(auth_client, "damage_query_only_user", "damagepassword123")
+    db = auth_client.app.state.db
+
+    db.insert_event(
+        event_id="event-query-only",
+        program_id="P-QUERY",
+        version="V1",
+        uploaded_by_user_id=owner_id,
+        status="Approved",
+    )
+    schedule_id = db.upsert_durability_schedule_artifact(
+        program_id="P-QUERY",
+        version="V1",
+        source_filename="query-only.sch",
+        artifact_uri="schedules/query-only.sch",
+        schedule_sha256="sha-query-only",
+        parse_preview_json=json.dumps({"multiplier": 1.0, "event_rows": []}),
+        owner_user_id=owner_id,
+    )
+    db.set_active_durability_schedule("P-QUERY", "V1", schedule_id)
+
+    def _unexpected_call(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("inspect query path must not call mutation/repair checks")
+
+    monkeypatch.setattr(
+        "server.services.damage_inspect.assess_scope_damage_repair_state",
+        _unexpected_call,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "server.services.damage_inspect.check_damage_prerequisites",
+        _unexpected_call,
+        raising=False,
+    )
+
+    response = auth_client.post(
+        "/api/v1/damage/inspect",
+        json={"event_ids": ["event-query-only"]},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["rows"][0]["event_id"] == "event-query-only"
+    assert body["rows"][0]["damages"] == {}
+
+
 def test_damage_inspect_returns_persisted_rows_without_compute(auth_client: TestClient) -> None:
     register = auth_client.post(
         "/api/v1/auth/register",
@@ -157,6 +213,88 @@ def test_damage_inspect_reports_stale_values(auth_client: TestClient) -> None:
     assert cell["stale_reason"] == "schedule_changed"
     assert body["scopes"][0]["has_stale_results"] is True
     assert body["scopes"][0]["has_current_results"] is False
+
+
+def test_damage_inspect_surfaces_running_and_failed_task_context(
+    auth_client: TestClient,
+) -> None:
+    register = auth_client.post(
+        "/api/v1/auth/register",
+        json={"username": "damage_scope_meta_user", "password": "damagepassword123"},
+    )
+    assert register.status_code == 201, register.text
+    owner_id = register.json()["id"]
+    login(auth_client, "damage_scope_meta_user", "damagepassword123")
+    db = auth_client.app.state.db
+
+    db.insert_event(
+        event_id="event-running-scope",
+        program_id="P-RUN-SCOPE",
+        version="V1",
+        uploaded_by_user_id=owner_id,
+        status="Approved",
+    )
+    db.insert_event(
+        event_id="event-failed-scope",
+        program_id="P-FAIL-SCOPE",
+        version="V1",
+        uploaded_by_user_id=owner_id,
+        status="Approved",
+    )
+    db.create_upload_task(
+        task_id="running-damage-task",
+        created_by_user_id=owner_id,
+        total_events=1,
+        task_kind="damage_calculation",
+        phase="calculating",
+        scope={"program_id": "P-RUN-SCOPE", "version": "V1"},
+    )
+    db.update_upload_task(
+        "running-damage-task",
+        status="running",
+        phase="calculating",
+    )
+    db.create_upload_task(
+        task_id="failed-damage-task",
+        created_by_user_id=owner_id,
+        total_events=1,
+        task_kind="damage_calculation",
+        phase="calculating",
+        scope={"program_id": "P-FAIL-SCOPE", "version": "V1"},
+    )
+    db.update_upload_task(
+        "failed-damage-task",
+        status="failed",
+        phase="calculating",
+        result={
+            "failure_report": {
+                "summary": "Damage calculation failed for selected scope",
+                "issues": [
+                    {
+                        "field": "event_id",
+                        "code": "task_exception",
+                        "message": "Task failed",
+                    }
+                ],
+            }
+        },
+    )
+
+    response = auth_client.post(
+        "/api/v1/damage/inspect",
+        json={"event_ids": ["event-running-scope", "event-failed-scope"]},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    scopes_by_program = {scope["program_id"]: scope for scope in body["scopes"]}
+    assert scopes_by_program["P-RUN-SCOPE"]["active_damage_task_id"] == "running-damage-task"
+    assert scopes_by_program["P-RUN-SCOPE"]["failure_report"] is None
+    assert (
+        scopes_by_program["P-FAIL-SCOPE"]["failure_report"]["summary"]
+        == "Damage calculation failed for selected scope"
+    )
+    assert scopes_by_program["P-FAIL-SCOPE"]["active_damage_task_id"] is None
 
 
 def test_damage_calculate_starts_task_when_prerequisites_are_current(

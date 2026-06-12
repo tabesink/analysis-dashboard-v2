@@ -43,13 +43,8 @@ function roundToNiceLimits(min: number, max: number): [number, number] {
   return [roundedMin, roundedMax];
 }
 
-/**
- * Calculate axis limits from all curves.
- *
- * Finds min/max across all points, rounds to nice values for clean tick labels.
- * Min is rounded down, max is rounded up to ensure all data is visible.
- */
-export function calculateAxisLimits(curves: Curve[]): AxisLimits {
+// fallow-ignore-next-line complexity
+function scanCurveExtents(curves: Curve[]): AxisLimits | null {
   let xMin = Infinity;
   let xMax = -Infinity;
   let yMin = Infinity;
@@ -78,6 +73,28 @@ export function calculateAxisLimits(curves: Curve[]): AxisLimits {
   }
 
   if (!isFinite(xMin)) {
+    return null;
+  }
+
+  return { xMin, xMax, yMin, yMax };
+}
+
+/**
+ * Calculate raw min/max axis limits from curves without rounding or origin padding.
+ */
+export function calculateRawAxisLimits(curves: Curve[]): AxisLimits | null {
+  return scanCurveExtents(curves);
+}
+
+/**
+ * Calculate axis limits from all curves.
+ *
+ * Finds min/max across all points, rounds to nice values for clean tick labels.
+ * Min is rounded down, max is rounded up to ensure all data is visible.
+ */
+export function calculateAxisLimits(curves: Curve[]): AxisLimits {
+  const raw = scanCurveExtents(curves);
+  if (!raw) {
     return {
       xMin: -DEFAULT_EMPTY_AXIS_RANGE,
       xMax: DEFAULT_EMPTY_AXIS_RANGE,
@@ -85,6 +102,8 @@ export function calculateAxisLimits(curves: Curve[]): AxisLimits {
       yMax: DEFAULT_EMPTY_AXIS_RANGE,
     };
   }
+
+  let { xMin, xMax, yMin, yMax } = raw;
 
   // Ensure the origin is always within the visible range for datum lines
   xMin = Math.min(xMin, 0);

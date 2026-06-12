@@ -1064,12 +1064,10 @@ def _schedule_damage_extension(
         previous_preview=previous_preview,
     )
     raw = schedule_precompute_decision_to_extension(decision)
-    extension: dict[str, Any] = {}
-    if "damage_task_id" in raw:
-        extension["damage_task_id"] = raw["damage_task_id"]
-    if "damage_prerequisite_report" in raw:
+    extension: dict[str, Any] = dict(raw)
+    if "damage_prerequisite_report" in extension:
         extension["damage_prerequisite_report"] = DamageFailureReport(
-            **raw["damage_prerequisite_report"]
+            **extension["damage_prerequisite_report"]
         )
     return extension
 

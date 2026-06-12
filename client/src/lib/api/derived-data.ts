@@ -2,7 +2,7 @@
  * Derived-data task API functions.
  */
 
-import { APIError, getApiBaseUrl } from './client';
+import { APIError, fetchJsonGet, getApiBaseUrl } from './client';
 import {
   waitForTaskStatus,
   type TaskPollConnectionState,
@@ -41,23 +41,8 @@ function classifyDerivedTaskPollError(error: unknown): {
 export type DerivedTaskPollConnectionState = TaskPollConnectionState;
 
 export const derivedDataApi = {
-  getDerivedDataTaskStatus: async (taskId: string): Promise<DerivedTaskStatusEvent> => {
-    const response = await fetch(
-      `${getApiBaseUrl()}/api/v1/dashboard/derived-data/task/${taskId}`,
-      {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-      },
-    );
-
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      throw new APIError(response.status, response.statusText, body);
-    }
-
-    return response.json();
-  },
+  getDerivedDataTaskStatus: async (taskId: string): Promise<DerivedTaskStatusEvent> =>
+    fetchJsonGet(`${getApiBaseUrl()}/api/v1/dashboard/derived-data/task/${taskId}`),
 
   waitForDerivedDataTask: async (
     taskId: string,

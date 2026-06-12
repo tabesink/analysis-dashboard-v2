@@ -126,6 +126,10 @@ def decide_after_schedule_save(
                 "updated_rows": result["updated_rows"],
             }
 
+    db.clear_event_channel_damage_for_program_version(
+        program_id=program_id,
+        version=version,
+    )
     start = damage_service._start_damage_calculation_task(
         program_id=program_id,
         version=version,
@@ -232,10 +236,19 @@ def schedule_precompute_decision_to_extension(decision: dict[str, Any]) -> dict[
     """Convert a schedule-save precompute decision into API response fields."""
     extension: dict[str, Any] = {}
     action = decision.get("action")
-    if action in {"start_damage_calculation", "reuse_active_task"}:
+    if action == "start_damage_calculation":
+        extension["schedule_command_outcome"] = "calculation_started"
         extension["damage_task_id"] = decision.get("damage_task_id") or decision.get("task_id")
+        extension["damage_task_status"] = "calculating"
+    elif action == "reuse_active_task":
+        extension["schedule_command_outcome"] = "reused_active_task"
+        extension["damage_task_id"] = decision.get("damage_task_id") or decision.get("task_id")
+        extension["damage_task_status"] = "calculating"
     elif action == "blocked":
+        extension["schedule_command_outcome"] = "validation_blocked"
         extension["damage_prerequisite_report"] = decision["damage_prerequisite_report"]
+    else:
+        extension["schedule_command_outcome"] = "failed_to_start"
     return extension
 
 

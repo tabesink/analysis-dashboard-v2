@@ -2,7 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 
 import { applyDamageTaskResponse } from '@/features/edit-metadata/lib/apply-damage-task-response';
 import { resolveScheduleDamageResponse } from '@/features/edit-metadata/lib/schedule-damage-response';
-import type { DamageCalculationScope } from '@/stores/damage-calculation-store';
+import type { DamageCalculationScope } from '@/lib/damage-calculation-cache';
 import type { DurabilityScheduleContextResponse } from '@/types/api';
 
 export function applyScheduleDamageResponse(params: {

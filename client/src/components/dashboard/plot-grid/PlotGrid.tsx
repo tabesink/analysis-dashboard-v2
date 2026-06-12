@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { SVGPlotCard } from '@/components/charts';
 import type { Curve, PlotConfig, ColorConfig, AxisLimits } from '@/components/charts/types';
 import type { SVGPlotCurvesData } from '@/types/api';
-import { calculateAxisLimits } from '@/lib/chart-utils/scales';
+import { calculateAxisLimits, calculateRawAxisLimits } from '@/lib/chart-utils/scales';
 import { sortCurvesForRendering } from '@/lib/chart-utils/sort';
 import {
   DEFAULT_GRID_COLUMNS,
@@ -30,39 +30,6 @@ const SHARED_AXIS_HEADROOM = 5000;
 function getAxisGroup(plotKey: string): AxisGroup {
   if (plotKey.startsWith('bushing_')) return 'bushing';
   return 'bjShock';
-}
-
-function calculateRawAxisLimits(curves: Curve[]): AxisLimits | null {
-  let xMin = Infinity;
-  let xMax = -Infinity;
-  let yMin = Infinity;
-  let yMax = -Infinity;
-
-  for (const curve of curves) {
-    if (curve.xArray && curve.yArray) {
-      const len = Math.min(curve.xArray.length, curve.yArray.length);
-      for (let i = 0; i < len; i++) {
-        const x = curve.xArray[i];
-        const y = curve.yArray[i];
-        if (x < xMin) xMin = x;
-        if (x > xMax) xMax = x;
-        if (y < yMin) yMin = y;
-        if (y > yMax) yMax = y;
-      }
-      continue;
-    }
-
-    for (const point of curve.points) {
-      if (point.x < xMin) xMin = point.x;
-      if (point.x > xMax) xMax = point.x;
-      if (point.y < yMin) yMin = point.y;
-      if (point.y > yMax) yMax = point.y;
-    }
-  }
-
-  if (!isFinite(xMin)) return null;
-
-  return { xMin, xMax, yMin, yMax };
 }
 
 function snapSharedAxisLimitsToStep(limits: AxisLimits): AxisLimits {

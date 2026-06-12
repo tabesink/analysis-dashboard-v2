@@ -3,6 +3,12 @@
  * Aligned with server Pydantic models (server/models/upload.py)
  */
 
+import type {
+  EventIdentity,
+  EventMetadataOptionalFields,
+  EventStatus,
+} from './event-metadata-fields';
+
 // ============================================================================
 // Server Response Types (match Pydantic models exactly)
 // ============================================================================
@@ -60,35 +66,15 @@ export interface UploadTaskEvent {
   result?: UploadResponse;
 }
 
+export type UploadProgressPhase = 'uploading' | 'validating' | 'processing';
+
 /**
  * Dataset information for upload management table
  * Matches: server.models.upload.DatasetInfo
  */
-export interface DatasetInfo {
-  event_id: string;
-  program_id: string;
-  version: string;
+export interface DatasetInfo extends EventIdentity, EventMetadataOptionalFields {
   source_file?: string;
-  status?: 'Approved' | 'Obsolete' | 'Pending';
-  job_number?: string;
-  work_order?: string;
-  rfq?: boolean;
-  dv?: boolean;
-  pv?: boolean;
-  post_prod?: boolean;
-  suspension_component?: string;
-  axle_location?: string;
-  gvw?: string;
-  gross_vehicle_weight_range_lbs?: string;
-  fgawr?: string;
-  fgawr_range_lbs?: string;
-  rgawr?: string;
-  rgawr_range_lbs?: string;
-  drive_type?: string;
-  material_construction?: string;
-  steering_position?: string;
-  damper_type?: string;
-  vehicle_type?: string;
+  status?: EventStatus;
   row_count: number;
   created_at?: string;
 }
@@ -135,7 +121,7 @@ export interface DeleteProgramVersionScopeResponse {
 // Paginated Response (matches server.models.common.PaginatedResponse)
 // ============================================================================
 
-export interface PaginatedResponse<T> {
+interface PaginatedResponse<T> {
   items: T[];
   total: number;
   limit: number;
@@ -177,35 +163,16 @@ export interface DatasetListResponse {
 /**
  * Upload metadata form state (client-side)
  */
-export interface UploadMetadata {
+export interface UploadMetadata extends EventMetadataOptionalFields {
   program_id: string;
   version: string;
-  job_number?: string;
-  work_order?: string;
-  rfq?: boolean;
-  dv?: boolean;
-  pv?: boolean;
-  post_prod?: boolean;
-  suspension_component?: string;
-  axle_location?: string;
-  gvw?: string;
-  gross_vehicle_weight_range_lbs?: string;
-  fgawr?: string;
-  fgawr_range_lbs?: string;
-  rgawr?: string;
-  rgawr_range_lbs?: string;
-  drive_type?: string;
-  material_construction?: string;
-  steering_position?: string;
-  damper_type?: string;
-  vehicle_type?: string;
   status?: string;
 }
 
 /**
  * File info for upload display
  */
-export interface UploadedFile {
+interface UploadedFile {
   name: string;
   size: number;
   type: string;

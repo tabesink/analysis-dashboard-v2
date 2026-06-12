@@ -4,7 +4,6 @@ import {
   isDamageCellDisplayable,
   isDamageCellStale,
   resolveInspectDamageViewState,
-  toPlotDamageCell,
 } from '@/features/inspect-damage/lib/inspect-damage-view-state';
 import type { DamageInspectResponse } from '@/types/api';
 
@@ -16,6 +15,33 @@ const baseResponse: DamageInspectResponse = {
 };
 
 describe('resolveInspectDamageViewState', () => {
+  it('surfaces running calculation scopes from inspect status metadata', () => {
+    const state = resolveInspectDamageViewState({
+      response: {
+        ...baseResponse,
+        scopes: [
+          {
+            program_id: 'P1',
+            version: 'V1',
+            has_current_results: false,
+            has_stale_results: false,
+            has_active_schedule: true,
+            can_start_calculation: false,
+            active_damage_task_id: 'task-running',
+          },
+        ],
+      },
+      canWrite: true,
+    });
+
+    expect(state.runningScopes).toHaveLength(1);
+    expect(state.runningScopes[0]).toMatchObject({
+      program_id: 'P1',
+      version: 'V1',
+      active_damage_task_id: 'task-running',
+    });
+  });
+
   it('shows empty state with calculate action when prerequisites are current and no current results exist', () => {
     const state = resolveInspectDamageViewState({
       response: {
@@ -164,25 +190,6 @@ describe('damage cell helpers', () => {
     expect(isDamageCellStale({ damage: 0.1, status: 'current' })).toBe(false);
   });
 
-  it('maps persisted cells to plot-compatible ok status', () => {
-    expect(
-      toPlotDamageCell({
-        damage: 0.2,
-        base_damage: 0.1,
-        status: 'current',
-      }),
-    ).toEqual({ damage: 0.2, status: 'ok', error: null });
-
-    expect(
-      toPlotDamageCell({
-        damage: 0.2,
-        base_damage: 0.1,
-        status: 'stale',
-        stale_reason: 'schedule_changed',
-      }),
-    ).toEqual({ damage: 0.2, status: 'ok', error: null });
-  });
-
   it('keeps persisted error cells displayable with their failure message', () => {
     const cell = {
       damage: null,
@@ -191,10 +198,14 @@ describe('damage cell helpers', () => {
     };
 
     expect(isDamageCellDisplayable(cell)).toBe(true);
-    expect(toPlotDamageCell(cell)).toEqual({
-      damage: null,
-      status: 'error',
-      error: "No measurements found for mapped channel 'BJ X Force'",
-    });
+  });
+
+  it('keeps persisted unavailable cells displayable with unavailable badge copy', () => {
+    expect(
+      isDamageCellDisplayable({
+        damage: null,
+        status: 'unavailable',
+      }),
+    ).toBe(true);
   });
 });

@@ -15,10 +15,7 @@ import { ScopeDeleteSummaryPanel } from '@/components/blocks/dialog/scope-delete
 import type { UploadOperationModalProps } from '@/features/database-upload/upload-operation-types';
 
 export type {
-  UploadCompletionResult,
   UploadOperationModalProps,
-  UploadProgressPhase,
-  UploadWizardStep,
 } from '@/features/database-upload/upload-operation-types';
 
 function formatElapsed(seconds: number): string {

@@ -2,35 +2,19 @@
  * API request/response type definitions
  */
 
+import type {
+  EventIdentity,
+  EventMetadataOptionalFields,
+  EventStatus,
+} from './event-metadata-fields';
+
 // Event metadata from server
-export interface EventMetadata {
-  event_id: string;
-  program_id: string;
-  version: string;
+export interface EventMetadata extends EventIdentity, EventMetadataOptionalFields {
   uploaded_by_user_id?: string;
   uploaded_by_username?: string;
   last_updated_by_user_id?: string;
   last_updated_by_username?: string;
-  status: 'Approved' | 'Obsolete' | 'Pending';
-  job_number?: string;
-  work_order?: string;
-  rfq?: boolean;
-  dv?: boolean;
-  pv?: boolean;
-  post_prod?: boolean;
-  suspension_component?: string;
-  axle_location?: string;
-  gvw?: string;
-  gross_vehicle_weight_range_lbs?: string;
-  fgawr?: string;
-  fgawr_range_lbs?: string;
-  rgawr?: string;
-  rgawr_range_lbs?: string;
-  drive_type?: string;
-  material_construction?: string;
-  steering_position?: string;
-  damper_type?: string;
-  vehicle_type?: string;
+  status: EventStatus;
   custom_fields?: Record<string, string>;
   source_file?: string;
   row_count?: number;
@@ -161,6 +145,7 @@ export interface ChannelMapEditorResponse {
   failed_artifact_count: number;
 }
 
+// fallow-ignore-next-line unused-type
 export interface ChannelMapProcessResult {
   program_id: string;
   version: string;
@@ -235,7 +220,13 @@ export interface DurabilityScheduleContextResponse {
   schedule_sha256: string;
   source_filename: string;
   parse_preview: DurabilitySchedulePreview;
+  schedule_command_outcome?:
+    | 'calculation_started'
+    | 'reused_active_task'
+    | 'validation_blocked'
+    | 'failed_to_start';
   damage_task_id?: string;
+  damage_task_status?: 'validating' | 'calculating' | 'completed' | 'failed';
   damage_prerequisite_report?: DamageFailureReport;
 }
 
@@ -321,6 +312,7 @@ export interface DamageInspectResponse {
 /**
  * Standard error response structure from the API
  */
+// fallow-ignore-next-line unused-type
 export interface APIErrorResponse {
   error: string;
   message: string;
@@ -374,6 +366,7 @@ export interface SVGPlotMetadata {
 /**
  * Response from GET /api/v1/dashboard/plots/data
  */
+// fallow-ignore-next-line unused-type
 export interface SVGPlotDataResponse {
   plots: Record<string, SVGPlotCurvesData>;
   metadata: SVGPlotMetadata;

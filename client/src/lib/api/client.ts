@@ -285,3 +285,19 @@ export function getApiBaseUrl(): string {
   return resolveApiBase();
 }
 
+/** GET JSON without a per-request timeout (used by task polling loops). */
+export async function fetchJsonGet<T>(url: string): Promise<T> {
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new APIError(response.status, response.statusText, body);
+  }
+
+  return response.json();
+}
+

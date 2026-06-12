@@ -551,6 +551,57 @@ Source: `docs/brainstorm/27_precompute_post_data_upload/`.
 
 ---
 
+## Phase 30 — Fallow client P4 quick dedup (FALLOW-P4)
+
+**Objective:** Reduce Fallow duplication hotspots in `client/` without changing product behavior.
+
+| Task ID | Task | Status | Key Files |
+|---------|------|--------|-----------|
+| FALLOW-P4-QUICK | P4 ✅ act slices: error boundary, types, binary decode, axis limits, table helpers | DONE (2026-06-12) | `client/src/components/shared/RouteErrorFallback.tsx`, `client/src/types/event-metadata-fields.ts`, `client/src/lib/utils/binary-decode-core.ts`, `client/src/lib/chart-utils/scales.ts`, `client/src/lib/database-table/shared.ts`, `client/src/components/database-table/FilterableColumnHeader.tsx`, `client/src/app/database/page.tsx`, `client/src/app/inspect-damage/page.tsx` | Shared route error fallback; consolidated event metadata types; shared binary decode core; unified axis limit scanning; shared database/inspect-damage table helpers. See `docs/tasks/FALLOW-P4-QUICK.md`, `docs/brainstorm/30_fallow_client_v1/TRIAGE.md`. |
+
+---
+
+## Phase 31 — Fallow client dead-export hygiene (FALLOW-P1)
+
+**Objective:** Trim low-risk inherited dead exports without changing runtime behavior.
+
+| Task ID | Task | Status | Key Files |
+|---------|------|--------|-----------|
+| FALLOW-P1-01 | Remove unused inspect-damage table preference storage-key export | DONE (2026-06-12) | `client/src/lib/inspect-damage-table-preferences.ts` | Removed unused `INSPECT_DAMAGE_TABLE_PREFS_STORAGE_KEY` export after GitNexus impact check (`risk: LOW`, `direct: 0`). Fallow audit remains pass with zero introduced findings and dead-code inherited count reduced (13 → 12). See `docs/tasks/FALLOW-P1-01.md`. |
+| FALLOW-P1-02 | Fix damage-calculation type-source imports and remove dead upload modal re-export types | DONE (2026-06-12) | `client/src/features/edit-metadata/DatabaseDerivedDataOperationModals.tsx`, `client/src/features/edit-metadata/lib/apply-damage-task-response.ts`, `client/src/features/edit-metadata/lib/apply-schedule-damage-response.ts`, `client/src/features/edit-metadata/lib/channel-reprocess-follow-up.ts`, `client/src/features/inspect-damage/lib/apply-inspect-damage-calculate.ts`, `client/src/features/database-upload/UploadOperationModal.tsx` | Switched `DamageCalculationScope` imports to canonical source (`client/src/lib/damage-calculation-cache.ts`) to clear TypeScript build failures and removed unused `UploadCompletionResult`/`UploadWizardStep` type re-exports from upload modal surface. Build now passes; Fallow audit remains pass with zero introduced findings and dead-code inherited reduced (12 → 10). See `docs/tasks/FALLOW-P1-02.md`. |
+| FALLOW-P1-03 | Remove dead upload API type re-exports and file-local dead types | DONE (2026-06-12) | `client/src/lib/api/upload.ts`, `client/src/types/upload.ts` | Removed unused upload API type re-exports (`UploadResponse`, `UploadTaskStartResponse`, `UploadTaskEvent`, `DatasetInfo`, `UploadMetadata`) and dropped `export` from unused file-local `PaginatedResponse` and `UploadedFile` interfaces. Build passes; Fallow audit remains pass with zero introduced findings and dead-code inherited reduced (10 → 3). Remaining three dead types in `client/src/types/api.ts` are deferred due GitNexus `CRITICAL` impact signals. See `docs/tasks/FALLOW-P1-03.md`. |
+| FALLOW-P1-04 | Disambiguate remaining `types/api.ts` dead types and finish dead-code cleanup | DONE (2026-06-12) | `client/src/types/api.ts`, `client/src/features/inspect-damage-3d/lib/damage-color-scale.ts` | GitNexus disambiguation showed `types/api.ts` symbol impact was file-import blast radius; applied targeted `fallow-ignore-next-line unused-type` suppressions for `ChannelMapProcessResult`, `APIErrorResponse`, and `SVGPlotDataResponse` instead of de-exporting. Also removed unused export on `getDamageColorBandColors`. Build passes; Fallow changed-code audit now reports `dead_code_issues: 0` with no introduced findings. See `docs/tasks/FALLOW-P1-04.md`. |
+
+---
+
+## Phase 32 — Damage pipeline refactor (DPR-31) (DONE)
+
+**Objective:** Move damage lifecycle ownership to schedule save/upload commands and make Inspect Damage a strict read model.
+
+| Task ID | Task | Status | Key Files | Details |
+|---------|------|--------|-----------|---------|
+| DPR-31-01 | Schedule save command starts/returns calculation lifecycle state | DONE (2026-06-12) | `server/services/post_upload_precompute.py`, `server/models/dashboard.py`, `server/routers/dashboard.py`, `tests/server/services/test_post_upload_precompute.py`, `tests/server/routers/test_durability_schedule_router.py`, `client/src/features/edit-metadata/lib/schedule-damage-response.ts`, `client/src/features/edit-metadata/lib/schedule-damage-response.test.ts`, `client/src/types/api.ts` | Added explicit schedule command outcome contract (`schedule_command_outcome`, `damage_task_id`, `damage_task_status`, `damage_prerequisite_report`) for attach/save schedule flows, with frontend resolver support and compatibility fallback for legacy response fields. See `docs/tasks/DPR-31-01.md`. |
+| DPR-31-02 | Clear stale scope damage and dedupe active tasks | DONE (2026-06-12) | `server/services/post_upload_precompute.py`, `server/storage/database.py`, `tests/server/routers/test_durability_schedule_router.py`, `tests/server/services/test_post_upload_precompute.py` | Schedule save now clears persisted `event_channel_damage` rows for the accepted scope before start/reuse of `damage_calculation`, preserving one-active-task command behavior and preventing stale rows from surviving into the next lifecycle run. See `docs/tasks/DPR-31-02.md`. |
+| DPR-31-03 | Persist simplified damage cell states and task failure context | DONE (2026-06-12) | `server/services/damage_calculation_task.py`, `tests/server/services/test_damage_calculation_task.py` | Damage worker now persists missing-channel rows as `unavailable` (instead of collapsing to `error`), keeps mixed `current/error/unavailable` outcomes in a single run, and writes structured `failure_report` context on unexpected task exceptions so failed-task state is queryable. See `docs/tasks/DPR-31-03.md`. |
+| DPR-31-04 | Inspect API is strict read model | DONE (2026-06-12) | `server/services/damage_inspect.py`, `tests/server/routers/test_damage_router.py` | Inspect query path no longer calls repair/prerequisite checks, remains read-only over persisted rows, and surfaces running/failed task context (`active_damage_task_id`, `failure_report`) without triggering backfill or calculation. See `docs/tasks/DPR-31-04.md`. |
+| DPR-31-05 | Inspect Damage UI uses read-only lifecycle states | DONE (2026-06-12) | `client/src/app/inspect-damage/page.tsx`, `client/src/features/inspect-damage/lib/inspect-damage-view-state.ts`, `client/src/features/inspect-damage/lib/plan-inspect-damage-backfill-attempts.ts`, `client/src/features/inspect-damage/__tests__/inspect-damage-view-state.test.ts`, `client/src/features/inspect-damage/__tests__/plan-inspect-damage-backfill-attempts.test.ts` | Inspect page no longer auto-starts backfill/calculation on load, renders explicit running status banner from read-only scope metadata, and renders `unavailable` cells directly in the table while keeping selected rows visible. See `docs/tasks/DPR-31-05.md`. |
+| DPR-31-06 | Reset migration + regression hardening + docs closeout | DONE (2026-06-12) | `server/storage/database.py`, `tests/server/routers/test_upload_router.py`, `tests/server/routers/test_durability_schedule_router.py`, `tests/server/routers/test_damage_router.py`, `client/src/features/inspect-damage/__tests__/plan-inspect-damage-backfill-attempts.test.ts`, `docs/brainstorm/31_damage-pipeline-refactor/MIGRATION_RESET_PLAN.md` | Scope delete reset now clears damage-lifecycle tasks (`damage_calculation`/`channel_reprocess`) alongside schedule and damage rows; regression suite covers schedule-triggered lifecycle, inspect query-only behavior, and no inspect-load auto-backfill; migration reset/operator notes finalized. See `docs/tasks/DPR-31-06.md`. |
+
+---
+
+## Phase 33 — Side panel variant (SPV-33) (IN PROGRESS)
+
+**Objective:** Add Reference vs Target comparison side-panel workflow and plotted-channel analysis state without regressing existing single-pool flows.
+
+| Task ID | Task | Status | Key Files | Details |
+|---------|------|--------|-----------|---------|
+| SPV-33-03 | Add plotted-channel analysis selection | DONE (2026-06-12) | `client/src/components/dashboard/side-panel/ComparisonPlottedChannelSection.tsx`, `client/src/components/dashboard/side-panel/ComparisonPlottedChannelSection.test.tsx`, `docs/tasks/SPV-33-03.md` | Added canonical plotted-channel picker wired to `comparison.selected_channel_keys` patch updates, with missing-key pruning and focused regression coverage for channel-selection semantics independent from table metadata/layout columns. |
+| SPV-33-04 | Build raw Reference/Target plot facts | DONE (2026-06-12) | `client/src/features/inspect-damage/lib/build-damage-comparison-raw-facts.ts`, `client/src/features/inspect-damage/__tests__/build-damage-comparison-raw-facts.test.ts`, `docs/tasks/SPV-33-04.md` | Added a pure raw-fact builder that splits union inspect-damage rows into Reference/Target memberships (including overlap duplication), filters to canonical selected channels, preserves event/program/version/channel metadata on facts, and drops invalid cells with explicit exclusion reasons while keeping stale values surfaced for downstream context. |
+| SPV-33-05 | Aggregate comparison plot data and delta metrics | DONE (2026-06-12) | `client/src/features/inspect-damage/lib/build-damage-comparison-aggregates.ts`, `client/src/features/inspect-damage/__tests__/build-damage-comparison-aggregates.test.ts`, `docs/tasks/SPV-33-05.md` | Added pure comparison aggregation families (program/version, event-channel, channel, and channel deltas) with value-mode-selected outputs, explicit normalized-denominator metadata, signed delta/ratio metrics, and low-reference guard behavior for missing/zero reference channels. |
+| SPV-33-06 | Wire comparison UI, plots, regressions, and docs | DONE (2026-06-12) | `client/src/app/inspect-damage/page.tsx`, `client/src/hooks/use-inspect-damage-state.ts`, `client/src/features/inspect-damage/lib/build-damage-comparison-view-model.ts`, `client/src/features/inspect-damage/__tests__/build-damage-comparison-view-model.test.ts`, `client/src/features/inspect-damage/components/InspectDamageCentralTabSwitcher.test.tsx`, `docs/tasks/SPV-33-06.md` | Added a dedicated Inspect Damage `Comparison` tab wired to persisted comparison state controls (Reference/Target events, plotted channels, value mode), union inspect-data fetch IDs, v1 aggregate-family rendering with mode/count/low-reference context, and focused regression coverage for the new view-model + tab wiring. |
+
+---
+
 ## Known Issues (Backlog)
 
 Issues identified during codebase analysis, not yet assigned to a phase:

@@ -1651,3 +1651,39 @@ Keep legacy generic `col_N` pattern matching in `damage_channels.py` as a separa
 **Rationale:** The upload-to-Inspect-Damage flow had accumulated duplicate polling loops, parallel task stores, and repeated damage-task response handling. Consolidating these client adapters improves locality without introducing a global background task center, a new public task kind, or a server-side queue.
 
 **Key files:** `client/src/lib/api/task-polling.ts`, `client/src/features/edit-metadata/lib/apply-damage-task-response.ts`, `client/src/stores/derived-task-scope-store.ts`, `client/src/features/database-upload/upload-completion-result.ts`.
+
+---
+
+## DEC-108 — Shared client modules for Fallow P4 quick dedup (FALLOW-P4-QUICK)
+
+**Date:** 2026-06-12
+
+**Decision:** Extract neutral shared modules for duplicated client code flagged in Fallow P4 triage: `RouteErrorFallback`, `event-metadata-fields`, `binary-decode-core`, shared axis extent scanning in `scales.ts`, and `database-table` helpers (`FilterableColumnHeader` + `lib/database-table/shared.ts`). Defer larger P4 families (event-tree unification, progress panels, operation modals) to later slices.
+
+**Rationale:** Syntactic duplication between database and inspect-damage table pages, route error boundaries, binary decode paths, and overlapping type shapes increased maintenance cost without product benefit. Shared modules preserve behavior (including database default sort `desc` vs inspect-damage `asc`) while eliminating clone groups.
+
+**Key files:** `client/src/components/shared/RouteErrorFallback.tsx`, `client/src/types/event-metadata-fields.ts`, `client/src/lib/utils/binary-decode-core.ts`, `client/src/lib/chart-utils/scales.ts`, `client/src/lib/database-table/shared.ts`, `client/src/components/database-table/FilterableColumnHeader.tsx`.
+
+---
+
+## DEC-109 — Explicit schedule command lifecycle contract (DPR-31-01)
+
+**Date:** 2026-06-12
+
+**Decision:** Durability schedule attach/save responses now return explicit command lifecycle fields: `schedule_command_outcome`, `damage_task_id`, `damage_task_status`, and `damage_prerequisite_report`. Outcome values are `calculation_started`, `reused_active_task`, `validation_blocked`, and `failed_to_start`.
+
+**Rationale:** The prior contract required UI callers to infer lifecycle outcomes from sparse optional fields. Explicit outcomes provide deterministic command semantics for schedule flows and establish the command/query boundary needed for DPR-31.
+
+**Key files:** `server/services/post_upload_precompute.py`, `server/models/dashboard.py`, `server/routers/dashboard.py`, `client/src/types/api.ts`, `client/src/features/edit-metadata/lib/schedule-damage-response.ts`.
+
+---
+
+## DEC-110 — Inspect read path removes repair/prerequisite policy checks (DPR-31-04)
+
+**Date:** 2026-06-12
+
+**Decision:** `POST /api/v1/damage/inspect` remains a strict read model and no longer evaluates scope repair/prerequisite policy (`assess_scope_damage_repair_state`, `check_damage_prerequisites`) while serving inspect reads. Inspect continues to return selected event rows plus read-only running/failed task context from persisted task state (`active_damage_task_id`, `failure_report`).
+
+**Rationale:** Read requests should not own command policy or hidden lifecycle side effects. Removing repair/prerequisite checks from inspect keeps command/query boundaries explicit: schedule save/upload owns lifecycle starts; inspect only reports persisted state.
+
+**Key files:** `server/services/damage_inspect.py`, `tests/server/routers/test_damage_router.py`, `docs/tasks/DPR-31-04.md`.

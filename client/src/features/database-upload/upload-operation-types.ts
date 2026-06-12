@@ -1,6 +1,6 @@
-export type UploadWizardStep = 'progress' | 'summary';
+import type { UploadProgressPhase } from '@/types/upload';
 
-export type UploadProgressPhase = 'uploading' | 'validating' | 'processing';
+export type UploadWizardStep = 'progress' | 'summary';
 
 export interface UploadCompletionResult {
   success: boolean;

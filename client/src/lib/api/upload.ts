@@ -3,7 +3,15 @@
  * Single responsibility: HTTP calls only
  */
 
-import { APIError, get, del, post, postFormDataWithProgress, getApiBaseUrl } from './client';
+import {
+  APIError,
+  fetchJsonGet,
+  get,
+  del,
+  post,
+  postFormDataWithProgress,
+  getApiBaseUrl,
+} from './client';
 import {
   waitForTaskStatus,
   type TaskPollConnectionState,
@@ -20,9 +28,6 @@ import type {
   DeleteProgramVersionScopeRequest,
   DeleteProgramVersionScopeResponse,
 } from '@/types/upload';
-
-// Re-export types for convenience
-export type { UploadResponse, UploadTaskStartResponse, UploadTaskEvent, DatasetInfo, UploadMetadata };
 
 /**
  * Optional metadata fields for upload
@@ -155,23 +160,8 @@ export const uploadApi = {
    * Poll upload task status.
    * Matches: GET /api/v1/upload/folder/task/{task_id}
    */
-  getUploadTaskStatus: async (taskId: string): Promise<UploadTaskEvent> => {
-    const response = await fetch(
-      `${getApiBaseUrl()}/api/v1/upload/folder/task/${taskId}`,
-      {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-      },
-    );
-
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      throw new APIError(response.status, response.statusText, body);
-    }
-
-    return response.json();
-  },
+  getUploadTaskStatus: async (taskId: string): Promise<UploadTaskEvent> =>
+    fetchJsonGet(`${getApiBaseUrl()}/api/v1/upload/folder/task/${taskId}`),
 
   /**
    * Poll until upload task completes or fails.

@@ -11,6 +11,7 @@ from server.services.post_upload_precompute import (
     decide_after_channel_reprocess_completion,
     decide_after_inspect_damage_access,
     decide_after_schedule_save,
+    schedule_precompute_decision_to_extension,
 )
 from tests.server.services.test_channel_reprocess_task import (
     _channel_map_save_entries,
@@ -186,6 +187,36 @@ def test_channel_reprocess_precompute_to_result_exposes_follow_up_fields() -> No
     )
 
     assert channel_reprocess_precompute_to_result({"action": "no_op", "reason": "damage_current"}) == {}
+
+
+def test_schedule_precompute_decision_to_extension_maps_started_outcome() -> None:
+    extension = schedule_precompute_decision_to_extension(
+        {
+            "action": "start_damage_calculation",
+            "damage_task_id": "damage-task-1",
+        }
+    )
+    assert extension == {
+        "schedule_command_outcome": "calculation_started",
+        "damage_task_id": "damage-task-1",
+        "damage_task_status": "calculating",
+    }
+
+
+def test_schedule_precompute_decision_to_extension_maps_blocked_outcome() -> None:
+    extension = schedule_precompute_decision_to_extension(
+        {
+            "action": "blocked",
+            "damage_prerequisite_report": {
+                "summary": "Damage calculation prerequisites are not met",
+                "issues": [],
+            },
+        }
+    )
+    assert extension["schedule_command_outcome"] == "validation_blocked"
+    assert extension["damage_prerequisite_report"]["summary"] == (
+        "Damage calculation prerequisites are not met"
+    )
 
 
 def test_decide_after_channel_reprocess_reuses_active_damage_task(
@@ -1039,8 +1070,6 @@ def test_decide_after_schedule_save_invalid_rows_fail_validation_without_partial
     test_cache,
     test_settings: Settings,
 ) -> None:
-    import pytest
-
     from tests.server.services.test_damage_calculation_task import _seed_program_with_channels
 
     program_id = "P-SCHED-INVALID"
@@ -1124,6 +1153,4 @@ def test_decide_after_schedule_save_invalid_rows_fail_validation_without_partial
     assert task["result_json"]["failure_report"]["issues"][0]["field"] == "repeats"
 
     row = test_database.get_event_channel_damage(event_id, "bj_x_force")
-    assert row is not None
-    assert row["status"] == "stale"
-    assert row["scheduled_damage"] == pytest.approx(0.05)
+    assert row is None

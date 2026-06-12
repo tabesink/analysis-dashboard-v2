@@ -1,0 +1,120 @@
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it, vi } from 'vitest';
+
+import type { DamageComparisonState } from '@/types/damage-comparison';
+import type { EventMetadata } from '@/types/api';
+import { ComparisonLoadDataSections } from './ComparisonLoadDataSections';
+
+type CapturedSectionProps = {
+  sectionTitle: string;
+  selectedEventIds: string[];
+  emptyMessage: string;
+  emptySelectionSubtitle: string;
+  onSelectedEventIdsChange: (selectedEventIds: string[]) => void;
+};
+
+const capturedSections: CapturedSectionProps[] = [];
+
+vi.mock('./LoadDataSection', () => ({
+  LoadDataEventTreeSection: (props: CapturedSectionProps) => {
+    capturedSections.push(props);
+    return <div data-section-title={props.sectionTitle} />;
+  },
+}));
+
+const baseComparison: DamageComparisonState = {
+  reference: { selected_event_ids: [] },
+  target: { selected_event_ids: [] },
+  selected_channel_keys: [],
+  value_mode: 'absolute',
+  aggregation_event_scope: 'selected_only',
+};
+
+const events: EventMetadata[] = [
+  {
+    event_id: 'event-1',
+    program_id: 'P1',
+    version: 'V1',
+    status: 'Approved',
+  },
+];
+
+describe('ComparisonLoadDataSections', () => {
+  it('renders independent Reference and Target sections with distinct labels and subtitles', () => {
+    capturedSections.length = 0;
+    renderToStaticMarkup(
+      <ComparisonLoadDataSections
+        comparison={baseComparison}
+        events={events}
+        isLoading={false}
+        onUpdateComparison={() => {}}
+      />,
+    );
+
+    expect(capturedSections).toHaveLength(2);
+    expect(capturedSections[0]?.sectionTitle).toBe('Reference Load Data');
+    expect(capturedSections[0]?.emptySelectionSubtitle).toBe(
+      'Select Reference events for comparison',
+    );
+    expect(capturedSections[1]?.sectionTitle).toBe('Target Load Data');
+    expect(capturedSections[1]?.emptySelectionSubtitle).toBe(
+      'Select Target events for comparison',
+    );
+  });
+
+  it('updates only reference selected event ids when reference section changes', () => {
+    capturedSections.length = 0;
+    const onUpdateComparison = vi.fn();
+
+    renderToStaticMarkup(
+      <ComparisonLoadDataSections
+        comparison={baseComparison}
+        events={events}
+        isLoading={false}
+        onUpdateComparison={onUpdateComparison}
+      />,
+    );
+
+    capturedSections[0]?.onSelectedEventIdsChange(['event-1']);
+
+    expect(onUpdateComparison).toHaveBeenCalledWith({
+      reference: { selected_event_ids: ['event-1'] },
+    });
+  });
+
+  it('updates only target selected event ids when target section changes', () => {
+    capturedSections.length = 0;
+    const onUpdateComparison = vi.fn();
+
+    renderToStaticMarkup(
+      <ComparisonLoadDataSections
+        comparison={baseComparison}
+        events={events}
+        isLoading={false}
+        onUpdateComparison={onUpdateComparison}
+      />,
+    );
+
+    capturedSections[1]?.onSelectedEventIdsChange(['event-1']);
+
+    expect(onUpdateComparison).toHaveBeenCalledWith({
+      target: { selected_event_ids: ['event-1'] },
+    });
+  });
+
+  it('provides empty guidance based on filtered catalog availability', () => {
+    capturedSections.length = 0;
+
+    renderToStaticMarkup(
+      <ComparisonLoadDataSections
+        comparison={baseComparison}
+        events={[]}
+        isLoading={false}
+        onUpdateComparison={() => {}}
+      />,
+    );
+
+    expect(capturedSections[0]?.emptyMessage).toBe('No events match current filters');
+    expect(capturedSections[1]?.emptyMessage).toBe('No events match current filters');
+  });
+});

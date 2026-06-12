@@ -1,6 +1,12 @@
-export const INSPECT_DAMAGE_TABLE_PREFS_STORAGE_KEY = 'inspect_damage_table_prefs_v1';
-
-export type SortDirection = 'asc' | 'desc';
+import type { SortDirection } from '@/lib/database-table/shared';
+import {
+  getDefaultDamageComparisonState,
+  mergeDamageComparisonState,
+} from '@/lib/damage-comparison-state';
+import type {
+  InspectDamageState,
+  InspectDamageTablePreferencesState,
+} from '@/types/session';
 
 export type InspectDamageTablePreferences = {
   visibleColumns: Record<string, boolean>;
@@ -152,11 +158,6 @@ export function treeKeysFromEvents(
   };
 }
 
-import type {
-  InspectDamageState,
-  InspectDamageTablePreferencesState,
-} from '@/types/session';
-
 export function getDefaultTablePreferencesState(): InspectDamageTablePreferencesState {
   return {
     visible_columns: {},
@@ -173,15 +174,15 @@ export function mergeInspectDamageState(
   current: InspectDamageState | undefined | null,
   patch: Partial<InspectDamageState>,
 ): InspectDamageState {
-  const base: InspectDamageState = {
-    table_preferences: current?.table_preferences,
-  };
-
   return {
     table_preferences:
       patch.table_preferences !== undefined
         ? patch.table_preferences
-        : base.table_preferences,
+        : current?.table_preferences,
+    comparison:
+      patch.comparison !== undefined
+        ? mergeDamageComparisonState(current?.comparison, patch.comparison)
+        : current?.comparison ?? getDefaultDamageComparisonState(),
   };
 }
 

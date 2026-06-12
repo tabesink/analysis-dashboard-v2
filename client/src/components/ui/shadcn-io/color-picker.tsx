@@ -227,13 +227,6 @@ export function findColorFamily(hex: string): ColorFamily | null {
 }
 
 /**
- * Get a specific shade from a color family.
- */
-export function getColorShade(family: ColorFamily, shade: ColorShade): string {
-  return COLOR_FAMILIES[family][shade];
-}
-
-/**
  * Generate evenly distributed shades from a color family.
  * Useful for assigning distinct shades to multiple items.
  */
@@ -249,11 +242,3 @@ export function distributeShades(family: ColorFamily, count: number): string[] {
     return shades[Math.min(index, shades.length - 1)];
   });
 }
-
-// Legacy exports for backwards compatibility
-export const ColorPickerAlpha = ColorPicker;
-export const ColorPickerEyeDropper = () => null;
-export const ColorPickerFormat = () => null;
-export const ColorPickerHue = ColorPicker;
-export const ColorPickerOutput = ColorPicker;
-export const ColorPickerSelection = ColorPicker;

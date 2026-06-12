@@ -206,7 +206,7 @@ class DamageCalculationTaskService:
                             multiplier=multiplier,
                             schedule_id=schedule_id,
                             schedule_sha256=schedule_sha256,
-                            status="error",
+                            status="unavailable",
                             error=str(item.get("error") or "Damage channel is unavailable"),
                         )
                         continue
@@ -273,6 +273,16 @@ class DamageCalculationTaskService:
             )
         except Exception as exc:  # pragma: no cover
             logger.exception("Damage calculation task failed unexpectedly: %s", task_id)
+            failure_report = {
+                "summary": "Damage calculation task failed unexpectedly",
+                "issues": [
+                    {
+                        "field": "event_id",
+                        "code": "task_exception",
+                        "message": str(exc),
+                    }
+                ],
+            }
             self.db.update_upload_task(
                 task_id,
                 status="failed",
@@ -281,4 +291,5 @@ class DamageCalculationTaskService:
                 progress_message=None,
                 current_event=None,
                 error=str(exc),
+                result={"failure_report": failure_report},
             )

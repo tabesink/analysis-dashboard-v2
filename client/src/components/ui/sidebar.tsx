@@ -47,14 +47,6 @@ const SidebarContext = React.createContext<SidebarContextProps>({
   state: "collapsed"
 })
 
-function useSidebar() {
-  const context = React.useContext(SidebarContext)
-  if (!context) {
-    throw new Error("useSidebar must be used within a SidebarProvider.")
-  }
-  return context
-}
-
 /**
  * SidebarProvider
  * Provides context and wrapper for the sidebar system.
@@ -672,5 +664,4 @@ export {
   SidebarRail,
   SidebarSeparator,
   SidebarTrigger,
-  useSidebar,
 }

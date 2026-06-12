@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { getDefaultDamageComparisonState } from '@/lib/damage-comparison-state';
 import {
   getDefaultTablePreferencesState,
   mergeInspectDamageState,
@@ -16,6 +17,7 @@ describe('inspect damage session defaults', () => {
 
     expect(defaults.inspect_damage_state).toEqual({
       table_preferences: undefined,
+      comparison: getDefaultDamageComparisonState(),
     });
   });
 
@@ -25,11 +27,27 @@ describe('inspect damage session defaults', () => {
       expanded_versions: ['P1::V1'],
     };
     const defaults = getDefaultSessionState({
-      inspect_damage_state: { table_preferences: tablePreferences },
+      inspect_damage_state: {
+        table_preferences: tablePreferences,
+        comparison: {
+          reference: { selected_event_ids: ['event-1'] },
+          target: { selected_event_ids: ['event-2'] },
+          selected_channel_keys: ['damage'],
+          value_mode: 'normalized',
+          aggregation_event_scope: 'selected_only',
+        },
+      },
     });
 
     expect(defaults.inspect_damage_state).toEqual({
       table_preferences: tablePreferences,
+      comparison: {
+        reference: { selected_event_ids: ['event-1'] },
+        target: { selected_event_ids: ['event-2'] },
+        selected_channel_keys: ['damage'],
+        value_mode: 'normalized',
+        aggregation_event_scope: 'selected_only',
+      },
     });
   });
 
@@ -51,6 +69,7 @@ describe('inspect damage session defaults', () => {
     expect(defaults.data_state.selected_event_ids).toEqual(['event-a', 'event-b']);
     expect(defaults.inspect_damage_state).toEqual({
       table_preferences: undefined,
+      comparison: getDefaultDamageComparisonState(),
     });
   });
 });
@@ -82,6 +101,41 @@ describe('inspect damage state merge', () => {
     const merged = mergeInspectDamageState(current, {});
 
     expect(merged.table_preferences).toEqual(getDefaultTablePreferencesState());
+    expect(merged.comparison).toEqual(getDefaultDamageComparisonState());
+  });
+
+  it('mergeInspectDamageState updates comparison while preserving table preferences', () => {
+    const tablePreferences = {
+      ...getDefaultTablePreferencesState(),
+      sort_field: 'work_order',
+    };
+    const merged = mergeInspectDamageState(
+      {
+        table_preferences: tablePreferences,
+        comparison: {
+          reference: { selected_event_ids: ['event-ref-a'] },
+          target: { selected_event_ids: ['event-target-a'] },
+          selected_channel_keys: ['damage-a'],
+          value_mode: 'absolute',
+          aggregation_event_scope: 'selected_only',
+        },
+      },
+      {
+        comparison: {
+          selected_channel_keys: ['damage-b'],
+          value_mode: 'normalized',
+        },
+      },
+    );
+
+    expect(merged.table_preferences).toEqual(tablePreferences);
+    expect(merged.comparison).toEqual({
+      reference: { selected_event_ids: ['event-ref-a'] },
+      target: { selected_event_ids: ['event-target-a'] },
+      selected_channel_keys: ['damage-b'],
+      value_mode: 'normalized',
+      aggregation_event_scope: 'selected_only',
+    });
   });
 
   it('round-trips table preferences between session and UI formats', () => {
@@ -154,5 +208,38 @@ describe('session update merge', () => {
       ...tablePreferences,
       sort_field: 'work_order',
     });
+  });
+
+  it('preserves inspect damage comparison state when table preferences change', () => {
+    const merged = mergeSessionUpdates(
+      {
+        inspect_damage_state: {
+          table_preferences: getDefaultTablePreferencesState(),
+          comparison: {
+            reference: { selected_event_ids: ['event-1'] },
+            target: { selected_event_ids: ['event-2'] },
+            selected_channel_keys: ['damage'],
+            value_mode: 'normalized',
+            aggregation_event_scope: 'selected_only',
+          },
+        },
+      },
+      {
+        inspect_damage_state: {
+          table_preferences: {
+            sort_field: 'work_order',
+          },
+        },
+      } as Partial<SessionState>,
+    );
+
+    expect(merged.inspect_damage_state?.comparison).toEqual({
+      reference: { selected_event_ids: ['event-1'] },
+      target: { selected_event_ids: ['event-2'] },
+      selected_channel_keys: ['damage'],
+      value_mode: 'normalized',
+      aggregation_event_scope: 'selected_only',
+    });
+    expect(merged.inspect_damage_state?.table_preferences?.sort_field).toBe('work_order');
   });
 });

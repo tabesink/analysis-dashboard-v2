@@ -154,6 +154,88 @@ def test_writer_cannot_delete_mixed_ownership_scope_and_admin_can(
     _assert_event_cache_groups_invalidated(auth_client, cache_keys)
 
 
+def test_scope_delete_cleans_damage_schedule_and_scoped_damage_tasks(
+    auth_client: TestClient,
+) -> None:
+    owner = _create_writer(auth_client, "scope_cleanup_owner")
+    program_id = "P-ROUTE-SCOPE-CLEANUP"
+    version = "V1"
+    event_id = "scope-cleanup-event"
+    _insert_event(
+        auth_client,
+        event_id=event_id,
+        owner_user_id=owner["id"],
+        program_id=program_id,
+        version=version,
+    )
+
+    schedule_id = auth_client.app.state.db.upsert_durability_schedule_artifact(
+        program_id=program_id,
+        version=version,
+        source_filename="cleanup.sch",
+        artifact_uri="schedules/cleanup.sch",
+        schedule_sha256="cleanup-sha",
+        parse_preview_json='{"multiplier": 1.0, "event_rows": []}',
+        owner_user_id=owner["id"],
+    )
+    auth_client.app.state.db.set_active_durability_schedule(program_id, version, schedule_id)
+    auth_client.app.state.db.upsert_event_channel_damage(
+        event_id=event_id,
+        channel_key="bj_x_force",
+        channel_name="BJ X Force",
+        channel_unit="N",
+        base_damage=0.01,
+        scheduled_damage=0.05,
+        repeats=1,
+        weight=1.0,
+        multiplier=1.0,
+        schedule_id=schedule_id,
+        schedule_sha256="cleanup-sha",
+        status="current",
+    )
+    auth_client.app.state.db.create_upload_task(
+        task_id="scope-cleanup-damage-task",
+        created_by_user_id=owner["id"],
+        total_events=1,
+        task_kind="damage_calculation",
+        phase="calculating",
+        scope={"program_id": program_id, "version": version},
+    )
+    auth_client.app.state.db.update_upload_task(
+        "scope-cleanup-damage-task",
+        status="running",
+        phase="calculating",
+    )
+
+    _login_writer(auth_client, "scope_cleanup_owner")
+    response = auth_client.post(
+        "/api/v1/upload/program-version/delete",
+        json={"program_id": program_id, "version": version},
+    )
+
+    assert response.status_code == 200, response.text
+    assert (
+        auth_client.app.state.db.list_event_channel_damage_for_program_version(program_id, version)
+        == []
+    )
+    assert auth_client.app.state.db.get_active_durability_schedule(program_id, version) is None
+    assert (
+        auth_client.app.state.db.list_durability_schedule_artifacts(program_id=program_id, version=version)
+        == []
+    )
+    scoped_tasks = auth_client.app.state.db.read_connection.execute(
+        """
+        SELECT task_id
+        FROM upload_tasks
+        WHERE task_kind IN ('damage_calculation', 'channel_reprocess')
+          AND json_extract_string(scope_json, '$.program_id') = ?
+          AND json_extract_string(scope_json, '$.version') = ?
+        """,
+        [program_id, version],
+    ).fetchall()
+    assert scoped_tasks == []
+
+
 def test_get_upload_folder_task_returns_completed_result_for_creator(
     auth_client: TestClient,
 ) -> None:

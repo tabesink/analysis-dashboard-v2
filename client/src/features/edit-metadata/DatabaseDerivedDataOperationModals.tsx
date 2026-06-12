@@ -14,9 +14,9 @@ import {
 import {
   closeDamageCalculationSummary,
   dismissDamageCalculationModal,
-  type DamageCalculationScope,
   useDamageCalculationStore,
 } from '@/stores/damage-calculation-store';
+import type { DamageCalculationScope } from '@/lib/damage-calculation-cache';
 
 function parseScopeKey(key: string): ChannelReprocessScope {
   const separatorIndex = key.indexOf('::');

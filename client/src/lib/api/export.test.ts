@@ -3,19 +3,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { exportApi } from './export';
 import { postFormDataWithProgress } from './client';
 
-vi.mock('./client', () => {
-  class APIError extends Error {
-    constructor(
-      public status: number,
-      public statusText: string,
-      public body: unknown,
-    ) {
-      super(statusText);
-    }
-  }
+vi.mock('./client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./client')>();
 
   return {
-    APIError,
+    ...actual,
     getApiBaseUrl: () => 'http://localhost:8000',
     postFormDataWithProgress: vi.fn(),
   };

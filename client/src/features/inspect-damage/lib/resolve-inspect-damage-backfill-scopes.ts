@@ -8,7 +8,7 @@ export function resolveInspectDamageBackfillScopes(params: {
     return [];
   }
 
-  return params.response.scopes.filter(
+  return (params.response.scopes ?? []).filter(
     (scope) =>
       scope.has_active_schedule &&
       scope.can_start_calculation &&

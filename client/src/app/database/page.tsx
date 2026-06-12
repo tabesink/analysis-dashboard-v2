@@ -4,9 +4,6 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowUpIcon,
-  ArrowDownIcon,
-  FilterIcon,
   FileSpreadsheet,
   Loader2,
   Trash2,
@@ -16,12 +13,6 @@ import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuCheckboxItem,
-} from '@/components/ui/dropdown-menu';
 import {
   Popover,
   PopoverContent,
@@ -34,7 +25,19 @@ import { ScopeDeleteOperationModal } from '@/features/database-scope-delete/Scop
 import { UploadOperationModal } from '@/features/database-upload/UploadOperationModal';
 import { DatabaseChannelReprocessBanners } from '@/features/edit-metadata/DatabaseChannelReprocessBanners';
 import { DatabaseDerivedDataOperationModals } from '@/features/edit-metadata/DatabaseDerivedDataOperationModals';
+import { FilterableColumnHeader } from '@/components/database-table';
 import { cn } from '@/lib/utils';
+import {
+  filterRowsByColumnFilters,
+  MIN_COLUMN_PX,
+  parseColumnLayoutPreferences,
+  PROGRAM_ID_DEFAULT_PX,
+  PROGRAM_ID_KEY,
+  toggleSortField,
+  updateColumnFilter,
+  widthForValues,
+  type SortDirection,
+} from '@/lib/database-table/shared';
 import {
   DatabaseSidePanel,
   DatabaseEventTree,
@@ -73,31 +76,7 @@ const DYNAMIC_LABEL_OVERRIDES: Record<string, string> = {
   'RGAWR Range (lbs)': 'RGAWR (lbs)',
 };
 
-// Column-width defaults are derived from the longest known value per column.
-// CHAR_PX/PADDING_PX are tuned for the table's text-xs cells (sort arrow +
-// filter icon + horizontal padding).
-const CHAR_PX = 7.2;
-const PADDING_PX = 32;
-const MIN_COLUMN_PX = 80;
-const MAX_COLUMN_PX = 400;
-// Default Job ID column width; matches the right edge of the leaf
-// event-name cell so header labels align with leaf data on first paint.
-const PROGRAM_ID_DEFAULT_PX = 250;
-const PROGRAM_ID_KEY = 'programId';
-
-const widthForValues = (label: string, values: string[]): number => {
-  const longest = values.reduce(
-    (max, v) => Math.max(max, v.length),
-    label.length,
-  );
-  return Math.min(
-    MAX_COLUMN_PX,
-    Math.max(MIN_COLUMN_PX, Math.ceil(longest * CHAR_PX) + PADDING_PX),
-  );
-};
-
 type SortField = string;
-type SortDirection = 'asc' | 'desc';
 
 const DATABASE_TABLE_PREFS_STORAGE_KEY = 'database_table_prefs_v1';
 
@@ -105,38 +84,6 @@ type DatabaseTablePreferences = {
   visibleColumns: Record<string, boolean>;
   columnWidths: Record<string, number>;
   updatedAt: string;
-};
-
-const parseDatabaseTablePreferences = (
-  raw: string | null,
-): DatabaseTablePreferences | null => {
-  if (!raw) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') {
-      return null;
-    }
-    const visibleColumns =
-      typeof parsed.visibleColumns === 'object' && parsed.visibleColumns !== null
-        ? (parsed.visibleColumns as Record<string, boolean>)
-        : {};
-    const columnWidths =
-      typeof parsed.columnWidths === 'object' && parsed.columnWidths !== null
-        ? (parsed.columnWidths as Record<string, number>)
-        : {};
-    return {
-      visibleColumns,
-      columnWidths,
-      updatedAt:
-        typeof parsed.updatedAt === 'string'
-          ? parsed.updatedAt
-          : new Date().toISOString(),
-    };
-  } catch {
-    return null;
-  }
 };
 
 export default function DatabasePage() {
@@ -318,7 +265,7 @@ export default function DatabasePage() {
     if (typeof window === 'undefined') {
       return;
     }
-    const stored = parseDatabaseTablePreferences(
+    const stored = parseColumnLayoutPreferences(
       window.localStorage.getItem(DATABASE_TABLE_PREFS_STORAGE_KEY),
     );
     setStoredTablePreferences(stored);
@@ -564,12 +511,9 @@ export default function DatabasePage() {
   }, [filters]);
 
   const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortField(field);
-      setSortDirection('desc');
-    }
+    const next = toggleSortField(sortField, sortDirection, field, 'desc');
+    setSortField(next.sortField);
+    setSortDirection(next.sortDirection);
   };
 
   const getUniqueValues = useMemo(() => {
@@ -589,16 +533,10 @@ export default function DatabasePage() {
     return uniqueValues;
   }, [columnDefinitions, datasets, facets, getColumnValue]);
 
-  const filteredDatasets = useMemo(() => {
-    return datasets.filter((dataset) => {
-      for (const [column, selectedValues] of Object.entries(columnFilters)) {
-        if (selectedValues.length === 0) continue;
-        const datasetValue = getColumnValue(dataset, column);
-        if (!selectedValues.includes(datasetValue)) return false;
-      }
-      return true;
-    });
-  }, [columnFilters, datasets, getColumnValue]);
+  const filteredDatasets = useMemo(
+    () => filterRowsByColumnFilters(datasets, columnFilters, getColumnValue),
+    [columnFilters, datasets, getColumnValue],
+  );
 
   const sortedDatasets = useMemo(() => {
     return [...filteredDatasets].sort((a, b) => {
@@ -624,15 +562,9 @@ export default function DatabasePage() {
   const handleColumnFilterChange = (
     column: string,
     value: string,
-    checked: boolean
+    checked: boolean,
   ) => {
-    setColumnFilters((prev) => {
-      const currentFilters = prev[column] || [];
-      if (checked) {
-        return { ...prev, [column]: [...currentFilters, value] };
-      }
-      return { ...prev, [column]: currentFilters.filter((v) => v !== value) };
-    });
+    setColumnFilters((prev) => updateColumnFilter(prev, column, value, checked));
   };
 
   const clearAllColumnFilters = () => {
@@ -667,77 +599,6 @@ export default function DatabasePage() {
   };
 
   const isDeleteBusy = isScopeDeleteBusy || isDeletingIds.length > 0;
-
-  const renderFilterableColumnHeader = (
-    label: string,
-    field: SortField,
-    width: number,
-  ) => (
-    <div
-      key={field}
-      className="relative shrink-0 px-2"
-      style={{ width }}
-    >
-      <div className="flex items-center justify-center gap-1">
-        <button
-          onClick={() => handleSort(field)}
-          className="flex items-center justify-center gap-1 hover:text-foreground transition-colors text-center min-w-0"
-        >
-          <span className="truncate">{label}</span>
-          {sortField === field && (
-            <span className="text-primary shrink-0">
-              {sortDirection === 'asc' ? (
-                <ArrowUpIcon size={10} />
-              ) : (
-                <ArrowDownIcon size={10} />
-              )}
-            </span>
-          )}
-        </button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              className={`shrink-0 p-1 rounded hover:bg-accent transition-colors ${
-                columnFilters[field]?.length > 0 
-                  ? 'text-primary' 
-                  : 'text-muted-foreground/50 hover:text-muted-foreground'
-              }`}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <FilterIcon size={10} />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            className="w-48 max-h-[280px] overflow-y-auto rounded-lg shadow-lg"
-          >
-            {getUniqueValues[field]?.length > 0 ? (
-              getUniqueValues[field].map((value) => (
-                <DropdownMenuCheckboxItem
-                  key={value}
-                  checked={columnFilters[field]?.includes(value) || false}
-                  onCheckedChange={(checked: boolean) =>
-                    handleColumnFilterChange(field, value, checked)
-                  }
-                  className="text-xs"
-                >
-                  {value}
-                </DropdownMenuCheckboxItem>
-              ))
-            ) : (
-              <div className="px-3 py-2 text-xs text-muted-foreground">
-                No values
-              </div>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-      <ColumnResizeHandle
-        width={width}
-        onResize={(next) => setColumnWidth(field, next)}
-      />
-    </div>
-  );
 
   const visibleColumnDefs = useMemo(
     () => columnDefinitions.filter((col) => visibleColumns[col.key]),
@@ -992,13 +853,21 @@ export default function DatabasePage() {
                       />
                     </div>
                     <div className="flex items-center">
-                      {visibleColumnDefs.map((col) =>
-                        renderFilterableColumnHeader(
-                          col.label,
-                          col.key,
-                          columnWidths[col.key] ?? MIN_COLUMN_PX,
-                        ),
-                      )}
+                      {visibleColumnDefs.map((col) => (
+                        <FilterableColumnHeader
+                          key={col.key}
+                          label={col.label}
+                          field={col.key}
+                          width={columnWidths[col.key] ?? MIN_COLUMN_PX}
+                          sortField={sortField}
+                          sortDirection={sortDirection}
+                          onSort={handleSort}
+                          columnFilters={columnFilters}
+                          onColumnFilterChange={handleColumnFilterChange}
+                          uniqueValues={getUniqueValues}
+                          onResize={(next) => setColumnWidth(col.key, next)}
+                        />
+                      ))}
                     </div>
                   </div>
                   <DatabaseEventTree

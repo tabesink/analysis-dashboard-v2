@@ -9,18 +9,16 @@ import { mapDamageCalculationProgress } from "@/features/edit-metadata/lib/damag
 import type { DamageCalculationProgressPhase } from "@/features/edit-metadata/lib/damage-calculation-progress";
 import { emitDamageCalculationCompletionToast } from "@/features/edit-metadata/lib/damage-calculation-feedback";
 import { derivedDataApi } from "@/lib/api/derived-data";
-import { invalidateQueriesAfterDamageCalculation } from "@/lib/damage-calculation-cache";
+import {
+  invalidateQueriesAfterDamageCalculation,
+  type DamageCalculationScope,
+} from "@/lib/damage-calculation-cache";
 import {
   createDerivedTaskScopeStore,
   formatProgramVersionScopeKey,
   type DerivedTaskStoreState,
 } from "@/stores/derived-task-scope-store";
 import type { DamageFailureReport } from "@/types/api";
-
-export interface DamageCalculationScope {
-  programId: string;
-  version: string;
-}
 
 export type DamageCalculationWizardStep = "progress" | "summary";
 

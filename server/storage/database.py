@@ -1492,6 +1492,43 @@ class UnifiedStore:
             write_conn.execute(sql, params)
             return int(before[0] if before else 0)
 
+    def clear_event_channel_damage_for_program_version(
+        self,
+        *,
+        program_id: str,
+        version: str,
+        conn: Any | None = None,
+    ) -> int:
+        """Delete persisted damage rows for a program/version scope."""
+        count_sql = """
+            SELECT COUNT(*)
+            FROM event_channel_damage d
+            JOIN dim_event e ON e.event_id = d.event_id
+            WHERE e.program_id = ?
+              AND e.version = ?
+              AND e.is_deleted = false
+        """
+        delete_sql = """
+            DELETE FROM event_channel_damage
+            WHERE event_id IN (
+                SELECT e.event_id
+                FROM dim_event e
+                WHERE e.program_id = ?
+                  AND e.version = ?
+                  AND e.is_deleted = false
+            )
+        """
+        params = [program_id, version]
+        if conn is not None:
+            before = conn.execute(count_sql, params).fetchone()
+            conn.execute(delete_sql, params)
+            return int(before[0] if before else 0)
+
+        with self.write_connection() as write_conn:
+            before = write_conn.execute(count_sql, params).fetchone()
+            write_conn.execute(delete_sql, params)
+            return int(before[0] if before else 0)
+
     def mark_stale_pending_derived_data(
         self,
         *,
@@ -2202,6 +2239,15 @@ class UnifiedStore:
             conn.execute(
                 f"DELETE FROM durability_schedule_artifacts WHERE {artifact_where}",
                 artifact_params,
+            )
+            conn.execute(
+                """
+                DELETE FROM upload_tasks
+                WHERE task_kind IN ('channel_reprocess', 'damage_calculation')
+                  AND json_extract_string(scope_json, '$.program_id') = ?
+                  AND (? IS NULL OR json_extract_string(scope_json, '$.version') = ?)
+                """,
+                [program_id, version, version],
             )
             conn.execute(f"DELETE FROM ingestion_artifacts WHERE {artifact_where}", artifact_params)
             conn.execute(f"DELETE FROM source_artifacts WHERE {artifact_where}", artifact_params)

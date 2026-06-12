@@ -1,7 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 
 import { applyDamageTaskResponse } from '@/features/edit-metadata/lib/apply-damage-task-response';
-import type { DamageCalculationScope } from '@/stores/damage-calculation-store';
+import type { DamageCalculationScope } from '@/lib/damage-calculation-cache';
 import type { DamageFailureReport } from '@/types/api';
 
 interface ChannelReprocessPrecomputeFollowUp {

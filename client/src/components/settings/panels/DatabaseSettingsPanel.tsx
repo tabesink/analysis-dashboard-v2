@@ -7,10 +7,8 @@ import { exportApi } from '@/lib/api';
 import { useDatabaseOperation } from '@/hooks/use-database-operation';
 import { useDatabaseSwitch } from '@/hooks/use-database-switch';
 import { DatabaseSection } from '@/components/upload/DatabaseSection';
-import {
-  DatabaseOperationModal,
-  DatabaseSwitchDialog,
-} from '@/components/upload';
+import { DatabaseOperationModal } from '@/components/upload/DatabaseOperationModal';
+import { DatabaseSwitchDialog } from '@/components/upload/DatabaseSwitchDialog';
 import { selectCanWrite, selectIsAdmin, useAuthStore } from '@/stores/auth-store';
 
 export function DatabaseSettingsPanel() {
