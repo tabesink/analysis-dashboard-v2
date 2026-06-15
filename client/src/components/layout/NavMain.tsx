@@ -14,7 +14,6 @@
  */
 
 import Link from "next/link"
-import React from "react"
 import { usePathname } from "next/navigation"
 
 import {
@@ -49,10 +48,10 @@ export function NavMain({ items }: NavMainProps) {
     <SidebarGroup>
       <SidebarGroupContent>
         <SidebarMenu className="gap-2 px-1">
+          <SidebarSeparator className="mx-auto w-8 opacity-60" />
           {items.map((item) => {
             const routeActive = pathname === item.url ||
               (item.url !== "/" && pathname.startsWith(item.url))
-            const isDatabaseEntry = item.url === "/database"
             const permitted = isPermitted(item)
             const isActive = permitted && routeActive
             const tooltipLabel = !permitted
@@ -60,48 +59,40 @@ export function NavMain({ items }: NavMainProps) {
               : item.title
 
             return (
-              <React.Fragment key={item.title}>
-                {isDatabaseEntry && (
-                  <SidebarSeparator className="my-1 mx-auto w-8 opacity-60" />
-                )}
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild={permitted}
-                    tooltip={tooltipLabel}
-                    isActive={isActive}
-                    aria-disabled={!permitted}
-                    aria-label={!permitted ? `${item.title} (disabled)` : undefined}
-                    className={cn(
-                      "transition-all duration-200",
-                      isActive && "bg-sidebar-accent shadow-sm",
-                      !permitted && "cursor-not-allowed opacity-50",
-                    )}
-                    onClick={!permitted ? (e) => e.preventDefault() : undefined}
-                  >
-                    {permitted ? (
-                      <Link href={item.url}>
-                        {item.icon && (
-                          <item.icon
-                            className={cn(
-                              "size-5 transition-colors",
-                              isActive
-                                ? "text-sidebar-accent-foreground"
-                                : "text-sidebar-foreground/70"
-                            )}
-                          />
-                        )}
-                      </Link>
-                    ) : (
-                      item.icon && (
-                        <item.icon className="size-5 text-sidebar-foreground/40" />
-                      )
-                    )}
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                {isDatabaseEntry && (
-                  <SidebarSeparator className="my-2 mx-auto w-8 opacity-100 bg-sidebar-border/90" />
-                )}
-              </React.Fragment>
+              <SidebarMenuItem key={item.title}>
+                <SidebarMenuButton
+                  asChild={permitted}
+                  tooltip={tooltipLabel}
+                  isActive={isActive}
+                  aria-disabled={!permitted}
+                  aria-label={!permitted ? `${item.title} (disabled)` : undefined}
+                  className={cn(
+                    "transition-all duration-200",
+                    isActive && "bg-sidebar-accent shadow-sm",
+                    !permitted && "cursor-not-allowed opacity-50",
+                  )}
+                  onClick={!permitted ? (e) => e.preventDefault() : undefined}
+                >
+                  {permitted ? (
+                    <Link href={item.url}>
+                      {item.icon && (
+                        <item.icon
+                          className={cn(
+                            "size-5 transition-colors",
+                            isActive
+                              ? "text-sidebar-accent-foreground"
+                              : "text-sidebar-foreground/70"
+                          )}
+                        />
+                      )}
+                    </Link>
+                  ) : (
+                    item.icon && (
+                      <item.icon className="size-5 text-sidebar-foreground/40" />
+                    )
+                  )}
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             )
           })}
         </SidebarMenu>

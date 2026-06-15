@@ -18,8 +18,14 @@ def build_damage_inspect_response(
     query_service: Any,
     *,
     event_ids: list[str],
+    include_all_calculated: bool = False,
 ) -> DamageInspectResponse:
     """Return persisted damage rows for the requested events without compute-on-read."""
+    if include_all_calculated:
+        event_ids = db.list_event_ids_with_persisted_damage()
+    else:
+        event_ids = list(dict.fromkeys(event_ids))
+
     if not event_ids:
         return DamageInspectResponse(channels=[], rows=[], scopes=[])
 

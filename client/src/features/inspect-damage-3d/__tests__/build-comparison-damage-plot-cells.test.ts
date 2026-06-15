@@ -107,36 +107,43 @@ const viewModel: DamageComparisonViewModel = {
 };
 
 describe('buildComparisonDamagePlotCells', () => {
-  it('builds cumulative channel cells for Reference and Target', () => {
+  it('builds per-event channel cells for all selected channels', () => {
+    const result = buildComparisonDamagePlotCells({
+      viewModel,
+      plotType: 'cumulative_by_channel',
+      selectedChannelKeys: ['bj_x_force', 'bj_y_force'],
+      version: undefined,
+      channels: DAMAGE_CHANNELS,
+      eventNameByEventId: new Map([
+        ['ref-1', 'ref_event'],
+        ['target-1', 'target_event'],
+      ]),
+    });
+
+    expect(result.cells.map((cell) => [cell.eventLabel, cell.channelKey, cell.damage])).toEqual([
+      ['ref_event', 'bj_x_force', 3],
+      ['target_event', 'bj_x_force', 5],
+      ['target_event', 'bj_y_force', 7],
+    ]);
+  });
+
+  it('filters cumulative channel cells by version slice', () => {
     const result = buildComparisonDamagePlotCells({
       viewModel,
       plotType: 'cumulative_by_channel',
       selectedChannelKeys: ['bj_x_force'],
       version: 'v01',
       channels: DAMAGE_CHANNELS,
+      eventNameByEventId: new Map([
+        ['ref-1', 'ref_event'],
+        ['target-1', 'target_event'],
+      ]),
     });
 
     expect(result.cells.map((cell) => [cell.eventLabel, cell.channelKey, cell.damage])).toEqual([
-      ['Reference', 'bj_x_force', 3],
-      ['Target', 'bj_x_force', 5],
+      ['ref_event', 'bj_x_force', 3],
+      ['target_event', 'bj_x_force', 5],
     ]);
-  });
-
-  it('filters event/channel cells by selected version and channels', () => {
-    const result = buildComparisonDamagePlotCells({
-      viewModel,
-      plotType: 'absolute_by_event',
-      selectedChannelKeys: ['bj_x_force', 'bj_y_force'],
-      version: 'v02',
-      channels: DAMAGE_CHANNELS,
-    });
-
-    expect(result.cells).toHaveLength(1);
-    expect(result.cells[0]).toMatchObject({
-      eventLabel: 'Target · target-1',
-      channelKey: 'bj_y_force',
-      damage: 7,
-    });
   });
 
   it('keeps target-lower deltas renderable as positive bar magnitudes', () => {

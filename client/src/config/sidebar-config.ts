@@ -1,7 +1,7 @@
 import {
   Calculator,
+  ChartNetwork,
   Database,
-  LayoutDashboardIcon,
 } from 'lucide-react';
 import type { SidebarConfig } from '@/types/layout';
 
@@ -20,12 +20,12 @@ export const getSidebarConfig = (): SidebarConfig => ({
       disabledTooltip: 'Read-only access — contact admin',
     },
     {
-      title: 'Dashboard',
+      title: 'Cross-Plots',
       url: '/dashboard',
-      icon: LayoutDashboardIcon,
+      icon: ChartNetwork,
     },
     {
-      title: 'Inspect Damage',
+      title: 'Damage Plots',
       url: '/inspect-damage',
       icon: Calculator,
     },

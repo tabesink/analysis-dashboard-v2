@@ -6,16 +6,24 @@ import { Suspense, useMemo } from 'react';
 import type { DamagePlotLayout } from '../lib/damage-plot-types';
 import { DamagePlotAxes } from './DamagePlotAxes';
 import { DamagePlotBars } from './DamagePlotBars';
+import { DamagePlotBaseGrid } from './DamagePlotBaseGrid';
+
+const EMPTY_EVENT_SELECTION = new Set<string>();
 
 type DamagePlotCanvasProps = {
   layout: DamagePlotLayout;
+  selectedEventIds: ReadonlySet<string>;
+  eventSelectionEnabled: boolean;
 };
 
-export default function DamagePlotCanvas({ layout }: DamagePlotCanvasProps) {
+export default function DamagePlotCanvas({
+  layout,
+  selectedEventIds,
+  eventSelectionEnabled,
+}: DamagePlotCanvasProps) {
   const { cameraPosition, lookAtTarget } = useMemo(() => {
-    const labelMargin = 1.8;
-    const spanX = layout.bounds.width + labelMargin;
-    const spanZ = layout.bounds.depth + labelMargin;
+    const spanX = layout.bounds.width + 1.8;
+    const spanZ = layout.bounds.depth + 1.8;
     const spanY = layout.bounds.height + 0.5;
     const maxSpan = Math.max(spanX, spanZ, spanY);
     const distance = maxSpan * 1.35;
@@ -49,24 +57,28 @@ export default function DamagePlotCanvas({ layout }: DamagePlotCanvasProps) {
           </div>
         }
       >
-      <color attach="background" args={['#ffffff']} />
-      <PerspectiveCamera makeDefault position={cameraPosition} fov={45} />
-      <OrbitControls
-        makeDefault
-        target={lookAtTarget}
-        enableDamping
-        dampingFactor={0.08}
-        enablePan
-        enableZoom
-        enableRotate
-      />
-      <ambientLight intensity={1.2} />
-      <directionalLight position={[20, 30, 20]} intensity={1.5} />
-      <DamagePlotBars bars={layout.bars} />
-      <Suspense fallback={null}>
-        <DamagePlotAxes layout={layout} />
-      </Suspense>
-    </Canvas>
+        <color attach="background" args={['#ffffff']} />
+        <PerspectiveCamera makeDefault position={cameraPosition} fov={45} />
+        <OrbitControls
+          makeDefault
+          target={lookAtTarget}
+          enableDamping
+          dampingFactor={0.08}
+          enablePan
+          enableZoom
+          enableRotate
+        />
+        <ambientLight intensity={1.2} />
+        <directionalLight position={[20, 30, 20]} intensity={1.5} />
+        <DamagePlotBaseGrid layout={layout} />
+        <DamagePlotBars
+          bars={layout.bars}
+          selectedEventIds={eventSelectionEnabled ? selectedEventIds : EMPTY_EVENT_SELECTION}
+        />
+        <Suspense fallback={null}>
+          <DamagePlotAxes layout={layout} />
+        </Suspense>
+      </Canvas>
     </div>
   );
 }

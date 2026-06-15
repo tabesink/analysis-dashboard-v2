@@ -297,6 +297,76 @@ def test_damage_inspect_surfaces_running_and_failed_task_context(
     assert scopes_by_program["P-FAIL-SCOPE"]["active_damage_task_id"] is None
 
 
+def test_damage_inspect_include_all_calculated_ignores_explicit_event_ids(
+    auth_client: TestClient,
+) -> None:
+    register = auth_client.post(
+        "/api/v1/auth/register",
+        json={"username": "damage_all_calculated_user", "password": "damagepassword123"},
+    )
+    assert register.status_code == 201, register.text
+    owner_id = register.json()["id"]
+    login(auth_client, "damage_all_calculated_user", "damagepassword123")
+    db = auth_client.app.state.db
+
+    db.insert_event(
+        event_id="event-all-calc-1",
+        program_id="P-ALL",
+        version="V1",
+        uploaded_by_user_id=owner_id,
+        status="Approved",
+        job_number="JOB-1",
+    )
+    db.insert_event(
+        event_id="event-all-calc-2",
+        program_id="P-ALL",
+        version="V2",
+        uploaded_by_user_id=owner_id,
+        status="Approved",
+        job_number="JOB-2",
+    )
+    db.upsert_event_channel_damage(
+        event_id="event-all-calc-1",
+        channel_key="bj_x_force",
+        channel_name="BJ X Force",
+        channel_unit="N",
+        base_damage=0.01,
+        scheduled_damage=0.05,
+        repeats=1,
+        weight=1.0,
+        multiplier=1.0,
+        schedule_id=1,
+        schedule_sha256="sha-1",
+        status="current",
+    )
+    db.upsert_event_channel_damage(
+        event_id="event-all-calc-2",
+        channel_key="bj_x_force",
+        channel_name="BJ X Force",
+        channel_unit="N",
+        base_damage=0.01,
+        scheduled_damage=0.05,
+        repeats=1,
+        weight=1.0,
+        multiplier=1.0,
+        schedule_id=1,
+        schedule_sha256="sha-2",
+        status="current",
+    )
+
+    response = auth_client.post(
+        "/api/v1/damage/inspect",
+        json={"event_ids": ["non-existent-event"], "include_all_calculated": True},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert sorted(row["event_id"] for row in body["rows"]) == [
+        "event-all-calc-1",
+        "event-all-calc-2",
+    ]
+
+
 def test_damage_calculate_starts_task_when_prerequisites_are_current(
     auth_client: TestClient,
 ) -> None:

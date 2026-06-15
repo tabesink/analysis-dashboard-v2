@@ -1,8 +1,8 @@
 export const DAMAGE_PLOT_TYPE_OPTIONS = [
-  { value: 'cumulative_by_program_version', label: 'Cumulative by program/version' },
-  { value: 'absolute_by_event', label: 'Absolute by event' },
   { value: 'cumulative_by_channel', label: 'Cumulative by channel' },
   { value: 'target_delta_vs_reference', label: 'Target Δ vs Reference by channel' },
+  { value: 'reference_absolute_by_event', label: 'Reference absolute damage by event' },
+  { value: 'target_absolute_by_event', label: 'Target absolute damage by event' },
 ] as const;
 
 export type DamagePlotType = (typeof DAMAGE_PLOT_TYPE_OPTIONS)[number]['value'];

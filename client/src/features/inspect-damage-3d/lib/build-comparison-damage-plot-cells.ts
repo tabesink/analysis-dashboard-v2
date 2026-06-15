@@ -2,7 +2,6 @@ import type { DamageComparisonViewModel } from '@/features/inspect-damage/lib/bu
 import type { DamagePlotType } from './damage-plot-overlay-types';
 import type {
   DamageChannelDefinition,
-  DamageChannelKey,
   DamagePlotCell,
 } from './damage-plot-types';
 
@@ -14,6 +13,7 @@ type BuildComparisonDamagePlotCellsInput = {
   selectedChannelKeys: readonly string[];
   version: string | undefined;
   channels: readonly DamageChannelDefinition[];
+  eventNameByEventId?: ReadonlyMap<string, string>;
 };
 
 type ComparisonDamagePlotCellsResult = {
@@ -42,12 +42,6 @@ function getSelectedChannels(
 ): DamageChannelDefinition[] {
   const selected = new Set(selectedChannelKeys);
   return channels.filter((channel) => selected.has(channel.key));
-}
-
-function firstSelectedChannel(
-  selectedChannels: readonly DamageChannelDefinition[],
-): DamageChannelDefinition | null {
-  return selectedChannels[0] ?? null;
 }
 
 function getChannelIndex(
@@ -104,116 +98,91 @@ function isFiniteNumber(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-function buildChannelTotalsCells(input: {
-  viewModel: DamageComparisonViewModel;
-  selectedChannels: readonly DamageChannelDefinition[];
-  effectiveVersion: string | undefined;
-}): DamagePlotCell[] {
-  const aggregates = input.viewModel.aggregates;
-  if (!aggregates) return [];
-  const { selectedChannelSet, channelIndexByKey } = buildSelectedChannelLookup(
-    input.selectedChannels,
-  );
-  const sums = new Map<string, {
-    dataset: DatasetKey;
-    channelKey: DamageChannelKey;
-    value: number;
-  }>();
+function buildEventKey(dataset: DatasetKey, eventId: string): string {
+  return `${dataset}::${eventId}`;
+}
 
-  for (const row of aggregates.event_channel) {
-    if (!selectedChannelSet.has(row.channel_key)) continue;
-    if (input.effectiveVersion && input.effectiveVersion !== ALL_VERSIONS && row.version !== input.effectiveVersion) {
-      continue;
+function buildEventLabel(
+  dataset: DatasetKey,
+  eventId: string,
+  eventNameByEventId?: ReadonlyMap<string, string>,
+): string {
+  const rspEventName = eventNameByEventId?.get(eventId);
+  if (rspEventName) return rspEventName;
+  return `${titleCaseDataset(dataset)} · ${eventId}`;
+}
+
+function buildEventIndexByKey(
+  rows: ReadonlyArray<{ dataset: DatasetKey; event_id: string }>,
+  inspectEventIds: readonly string[],
+): ReadonlyMap<string, number> {
+  const eventIndexByKey = new Map<string, number>();
+  const seen = new Set<string>();
+
+  const appendEvents = (dataset: DatasetKey) => {
+    for (const eventId of inspectEventIds) {
+      const key = buildEventKey(dataset, eventId);
+      if (seen.has(key)) continue;
+      if (!rows.some((row) => row.dataset === dataset && row.event_id === eventId)) continue;
+      eventIndexByKey.set(key, eventIndexByKey.size);
+      seen.add(key);
     }
-    const key = `${row.dataset}::${row.channel_key}`;
-    const current = sums.get(key);
-    sums.set(key, {
-      dataset: row.dataset,
-      channelKey: row.channel_key as DamageChannelKey,
-      value: (current?.value ?? 0) + row.selected_value,
-    });
-  }
+    for (const row of rows) {
+      if (row.dataset !== dataset) continue;
+      const key = buildEventKey(row.dataset, row.event_id);
+      if (seen.has(key)) continue;
+      eventIndexByKey.set(key, eventIndexByKey.size);
+      seen.add(key);
+    }
+  };
 
-  return Array.from(sums.values()).flatMap((row) => {
-    const channelIndex = getChannelIndex(channelIndexByKey, row.channelKey);
-    if (channelIndex === null || !isFiniteNonNegative(row.value)) return [];
-    const channel = input.selectedChannels[channelIndex];
-    if (!channel) return [];
-    const eventIndex = row.dataset === 'reference' ? 0 : 1;
-    return makeCell({
-      eventId: row.dataset,
-      eventLabel: titleCaseDataset(row.dataset),
-      eventIndex,
-      version: input.effectiveVersion ?? ALL_VERSIONS,
-      channel,
-      channelIndex,
-      damage: row.value,
-    });
-  });
+  appendEvents('reference');
+  appendEvents('target');
+  return eventIndexByKey;
 }
 
 function buildEventChannelCells(input: {
   viewModel: DamageComparisonViewModel;
   selectedChannels: readonly DamageChannelDefinition[];
   effectiveVersion: string | undefined;
+  eventNameByEventId?: ReadonlyMap<string, string>;
 }): DamagePlotCell[] {
   const aggregates = input.viewModel.aggregates;
   if (!aggregates) return [];
   const { selectedChannelSet, channelIndexByKey } = buildSelectedChannelLookup(
     input.selectedChannels,
   );
-  const eventIndexByKey = new Map<string, number>();
 
-  return aggregates.event_channel.flatMap((row) => {
-    if (!selectedChannelSet.has(row.channel_key)) return [];
-    if (input.effectiveVersion && input.effectiveVersion !== ALL_VERSIONS && row.version !== input.effectiveVersion) {
-      return [];
+  const filteredRows = aggregates.event_channel.filter((row) => {
+    if (!selectedChannelSet.has(row.channel_key)) return false;
+    if (
+      input.effectiveVersion &&
+      input.effectiveVersion !== ALL_VERSIONS &&
+      row.version !== input.effectiveVersion
+    ) {
+      return false;
     }
-    if (!isFiniteNonNegative(row.selected_value)) return [];
+    return isFiniteNonNegative(row.selected_value);
+  });
 
-    const eventKey = `${row.dataset}::${row.event_id}`;
-    if (!eventIndexByKey.has(eventKey)) {
-      eventIndexByKey.set(eventKey, eventIndexByKey.size);
-    }
+  const eventIndexByKey = buildEventIndexByKey(filteredRows, input.viewModel.inspectEventIds);
+
+  return filteredRows.flatMap((row) => {
     const channelIndex = getChannelIndex(channelIndexByKey, row.channel_key);
     if (channelIndex === null) return [];
     const channel = input.selectedChannels[channelIndex];
     if (!channel) return [];
+    const eventKey = buildEventKey(row.dataset, row.event_id);
+    const eventIndex = eventIndexByKey.get(eventKey);
+    if (eventIndex === undefined) return [];
 
     return makeCell({
-      eventId: eventKey,
-      eventLabel: `${titleCaseDataset(row.dataset)} · ${row.event_id}`,
-      eventIndex: eventIndexByKey.get(eventKey)!,
+      eventId: row.event_id,
+      eventLabel: buildEventLabel(row.dataset, row.event_id, input.eventNameByEventId),
+      eventIndex,
       version: row.version,
       channel,
       channelIndex,
-      damage: row.selected_value,
-      programId: row.program_id,
-    });
-  });
-}
-
-function buildProgramVersionCells(input: {
-  viewModel: DamageComparisonViewModel;
-  selectedChannels: readonly DamageChannelDefinition[];
-  effectiveVersion: string | undefined;
-}): DamagePlotCell[] {
-  const aggregates = input.viewModel.aggregates;
-  const channel = firstSelectedChannel(input.selectedChannels);
-  if (!aggregates || !channel) return [];
-
-  return aggregates.program_version.flatMap((row, index) => {
-    if (input.effectiveVersion && input.effectiveVersion !== ALL_VERSIONS && row.version !== input.effectiveVersion) {
-      return [];
-    }
-    if (!isFiniteNonNegative(row.selected_value)) return [];
-    return makeCell({
-      eventId: `${row.dataset}::${row.program_id}::${row.version}`,
-      eventLabel: `${titleCaseDataset(row.dataset)} · ${row.program_id} / ${row.version}`,
-      eventIndex: index,
-      version: row.version,
-      channel,
-      channelIndex: 0,
       damage: row.selected_value,
       programId: row.program_id,
     });
@@ -281,35 +250,21 @@ export function buildComparisonDamagePlotCells(
   }
 
   const cells =
-    input.plotType === 'absolute_by_event'
-      ? buildEventChannelCells({
+    input.plotType === 'target_delta_vs_reference'
+      ? buildDeltaCells({
+          viewModel: input.viewModel,
+          selectedChannels,
+        })
+      : buildEventChannelCells({
           viewModel: input.viewModel,
           selectedChannels,
           effectiveVersion,
-        })
-      : input.plotType === 'cumulative_by_program_version'
-        ? buildProgramVersionCells({
-            viewModel: input.viewModel,
-            selectedChannels,
-            effectiveVersion,
-          })
-        : input.plotType === 'target_delta_vs_reference'
-          ? buildDeltaCells({
-              viewModel: input.viewModel,
-              selectedChannels,
-            })
-          : buildChannelTotalsCells({
-              viewModel: input.viewModel,
-              selectedChannels,
-              effectiveVersion,
-            });
+          eventNameByEventId: input.eventNameByEventId,
+        });
 
   return {
     cells,
-    channels:
-      input.plotType === 'cumulative_by_program_version'
-        ? selectedChannels.slice(0, 1)
-        : selectedChannels,
+    channels: selectedChannels,
     versions,
     effectiveVersion,
     emptyMessage: 'No renderable comparison damage values are available for this selection.',

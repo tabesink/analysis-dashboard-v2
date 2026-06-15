@@ -1,71 +1,53 @@
 'use client';
 
-import { Text } from '@react-three/drei';
+import { Html } from '@react-three/drei';
 import type { DamagePlotLayout } from '../lib/damage-plot-types';
 
 type DamagePlotAxesProps = {
   layout: DamagePlotLayout;
 };
 
-const AXIS_COLOR = '#111827';
-const GRID_COLOR = '#d1d5db';
+const AXIS_COLOR = '#6b7280';
+const DEFAULT_BAR_WIDTH = 0.8;
+const AXIS_LABEL_CLASS =
+  'pointer-events-none select-none whitespace-nowrap px-1.5 py-0.5 text-[10px] font-medium leading-none text-gray-500';
+
+function StaticAxisLabel({
+  children,
+  position,
+}: {
+  children: string;
+  position: [number, number, number];
+}) {
+  return (
+    <Html position={position} center style={{ pointerEvents: 'none', color: AXIS_COLOR }}>
+      <span className={AXIS_LABEL_CLASS}>{children}</span>
+    </Html>
+  );
+}
 
 export function DamagePlotAxes({ layout }: DamagePlotAxesProps) {
-  const { bounds, cellSpacing, channelLabels, eventLabels } = layout;
-  const eventLabelStep = Math.max(1, Math.ceil(eventLabels.length / 12));
+  const { bounds, cellSpacing, channelLabels, bars } = layout;
+  const barWidth = bars[0]?.scale[0] ?? DEFAULT_BAR_WIDTH;
+  const eventLabelX = -(barWidth * 2 + 0.55);
 
   return (
     <group>
-      <gridHelper
-        args={[
-          Math.max(bounds.width, bounds.depth),
-          Math.max(channelLabels.length, eventLabels.length),
-          GRID_COLOR,
-          GRID_COLOR,
-        ]}
-        position={[bounds.width / 2, 0, bounds.depth / 2]}
-      />
-
       {channelLabels.map((label, index) => (
-        <Text
-          key={label}
-          position={[index * cellSpacing, 0.05, -0.8]}
-          rotation={[-Math.PI / 2, 0, 0]}
-          fontSize={0.22}
-          color={AXIS_COLOR}
-          anchorX="center"
-          anchorY="middle"
-        >
+        <StaticAxisLabel key={label} position={[index * cellSpacing, 0.05, -0.8]}>
           {label}
-        </Text>
+        </StaticAxisLabel>
       ))}
 
-      {eventLabels.map((label, index) => {
-        if (index % eventLabelStep !== 0) return null;
-        return (
-          <Text
-            key={`${label}:${index}`}
-            position={[-0.8, 0.05, index * cellSpacing]}
-            rotation={[-Math.PI / 2, 0, Math.PI / 2]}
-            fontSize={0.2}
-            color={AXIS_COLOR}
-            anchorX="center"
-            anchorY="middle"
-          >
-            {label}
-          </Text>
-        );
-      })}
-
-      <Text position={[bounds.width / 2, 0.15, -1.7]} fontSize={0.3} color={AXIS_COLOR} anchorX="center">
+      <StaticAxisLabel position={[bounds.width / 2, 0.15, -1.7]}>
         Channel
-      </Text>
-      <Text position={[-1.7, 0.15, bounds.depth / 2]} rotation={[0, Math.PI / 2, 0]} fontSize={0.3} color={AXIS_COLOR} anchorX="center">
+      </StaticAxisLabel>
+      <StaticAxisLabel position={[eventLabelX - 0.35, 0.15, bounds.depth / 2]}>
         Event
-      </Text>
-      <Text position={[-1.2, bounds.height, -1.2]} fontSize={0.3} color={AXIS_COLOR} anchorX="center">
+      </StaticAxisLabel>
+      <StaticAxisLabel position={[-1.2, bounds.height, -1.2]}>
         Damage
-      </Text>
+      </StaticAxisLabel>
     </group>
   );
 }

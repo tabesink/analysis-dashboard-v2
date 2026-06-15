@@ -150,3 +150,88 @@ def test_build_damage_inspect_response_includes_scope_state_for_empty_results(
     assert scope.has_stale_results is False
     assert scope.has_active_schedule is False
     assert scope.can_start_calculation is False
+
+
+def test_build_damage_inspect_response_include_all_calculated_filters_deleted_and_orders(
+    test_database,
+    test_cache,
+    test_settings,
+) -> None:
+    owner = test_database.create_user("inspect_all_calculated_user")
+    test_database.insert_event(
+        event_id="event-b",
+        program_id="P2",
+        version="V2",
+        uploaded_by_user_id=owner,
+        status="Approved",
+        job_number="JOB-B",
+    )
+    test_database.insert_event(
+        event_id="event-a",
+        program_id="P1",
+        version="V1",
+        uploaded_by_user_id=owner,
+        status="Approved",
+        job_number="JOB-A",
+    )
+    test_database.insert_event(
+        event_id="event-deleted",
+        program_id="P0",
+        version="V1",
+        uploaded_by_user_id=owner,
+        status="Approved",
+        job_number="JOB-DEL",
+    )
+    test_database.upsert_event_channel_damage(
+        event_id="event-b",
+        channel_key="bj_x_force",
+        channel_name="BJ X Force",
+        channel_unit="N",
+        base_damage=0.01,
+        scheduled_damage=0.05,
+        repeats=1,
+        weight=1.0,
+        multiplier=1.0,
+        schedule_id=1,
+        schedule_sha256="sha-b",
+        status="current",
+    )
+    test_database.upsert_event_channel_damage(
+        event_id="event-a",
+        channel_key="bj_x_force",
+        channel_name="BJ X Force",
+        channel_unit="N",
+        base_damage=0.02,
+        scheduled_damage=0.06,
+        repeats=1,
+        weight=1.0,
+        multiplier=1.0,
+        schedule_id=1,
+        schedule_sha256="sha-a",
+        status="current",
+    )
+    test_database.upsert_event_channel_damage(
+        event_id="event-deleted",
+        channel_key="bj_x_force",
+        channel_name="BJ X Force",
+        channel_unit="N",
+        base_damage=0.03,
+        scheduled_damage=0.07,
+        repeats=1,
+        weight=1.0,
+        multiplier=1.0,
+        schedule_id=1,
+        schedule_sha256="sha-del",
+        status="current",
+    )
+    test_database.soft_delete_events(["event-deleted"])
+
+    query = QueryService(test_database, test_cache, test_settings)
+    response = build_damage_inspect_response(
+        test_database,
+        query,
+        event_ids=[],
+        include_all_calculated=True,
+    )
+
+    assert [row.event_id for row in response.rows] == ["event-a", "event-b"]

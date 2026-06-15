@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   FileSpreadsheet,
   Loader2,
@@ -19,12 +19,14 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { useUploadOperation } from '@/hooks/use-upload-operation';
-import { dashboardApi } from '@/lib/api';
+import { damageApi, dashboardApi } from '@/lib/api';
 import { useUploadedDatasets, useScopeDeleteOperation } from '@/hooks';
+import { useEventCatalog } from '@/hooks/use-event-catalog';
 import { ScopeDeleteOperationModal } from '@/features/database-scope-delete/ScopeDeleteOperationModal';
 import { UploadOperationModal } from '@/features/database-upload/UploadOperationModal';
 import { DatabaseChannelReprocessBanners } from '@/features/edit-metadata/DatabaseChannelReprocessBanners';
 import { DatabaseDerivedDataOperationModals } from '@/features/edit-metadata/DatabaseDerivedDataOperationModals';
+import { DamageTableView } from '@/features/inspect-damage/components/DamageTableView';
 import { FilterableColumnHeader } from '@/components/database-table';
 import { cn } from '@/lib/utils';
 import {
@@ -39,15 +41,22 @@ import {
   type SortDirection,
 } from '@/lib/database-table/shared';
 import {
+  parseInspectDamageTablePreferences,
+  serializeInspectDamageTablePreferences,
+  type InspectDamageTablePreferences,
+} from '@/lib/inspect-damage-table-preferences';
+import { resolveInspectDamageViewState } from '@/features/inspect-damage/lib/inspect-damage-view-state';
+import {
   DatabaseSidePanel,
   DatabaseEventTree,
   ColumnResizeHandle,
 } from '@/components/upload';
 import { MetadataEditDialog } from '@/components/edit-metadata';
 import { DEFAULT_FILTER_OPTIONS } from '@/config/filters';
-import type { FilterOptions } from '@/types/api';
+import type { DamageInspectResponse, EventMetadata, FilterOptions } from '@/types/api';
 import type { DatasetInfo, UploadMetadata } from '@/types/upload';
 import { selectCanWrite, useAuthStore } from '@/stores/auth-store';
+import { isDamageCalculationActive } from '@/stores/damage-calculation-store';
 import { useUIStore } from '@/stores/ui-store';
 
 type FilterState = Record<string, string>;
@@ -79,6 +88,9 @@ const DYNAMIC_LABEL_OVERRIDES: Record<string, string> = {
 type SortField = string;
 
 const DATABASE_TABLE_PREFS_STORAGE_KEY = 'database_table_prefs_v1';
+const DATABASE_DAMAGE_TABLE_PREFS_STORAGE_KEY = 'database_damage_table_prefs_v1';
+
+type DatabaseCentralTab = 'datasets' | 'damage';
 
 type DatabaseTablePreferences = {
   visibleColumns: Record<string, boolean>;
@@ -176,6 +188,12 @@ export default function DatabasePage() {
   const [sortField, setSortField] = useState<SortField>('created_at');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [sidePanelCollapsed, setSidePanelCollapsed] = useState(false);
+  const [activeTab, setActiveTab] = useState<DatabaseCentralTab>('datasets');
+  const [damageTablePreferences, setDamageTablePreferences] = useState<
+    Omit<InspectDamageTablePreferences, 'updatedAt'> | null
+  >(null);
+  const [damageTablePreferencesLoaded, setDamageTablePreferencesLoaded] = useState(false);
+  const { events: catalogEvents, isLoading: isCatalogLoading } = useEventCatalog();
 
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({
     suspension_component: [],
@@ -270,6 +288,26 @@ export default function DatabasePage() {
     );
     setStoredTablePreferences(stored);
     setPreferencesLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const raw = window.localStorage.getItem(DATABASE_DAMAGE_TABLE_PREFS_STORAGE_KEY);
+    const parsed = parseInspectDamageTablePreferences(raw);
+    if (parsed) {
+      setDamageTablePreferences({
+        visibleColumns: parsed.visibleColumns,
+        columnWidths: parsed.columnWidths,
+        expandedPrograms: parsed.expandedPrograms,
+        expandedVersions: parsed.expandedVersions,
+        sortField: parsed.sortField,
+        sortDirection: parsed.sortDirection,
+        columnFilters: parsed.columnFilters,
+      });
+    }
+    setDamageTablePreferencesLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -695,6 +733,85 @@ export default function DatabasePage() {
     }
   }, [columnWidths, preferencesHydrated, visibleColumns]);
 
+  const setPersistedDamageTablePreferences = useCallback(
+    (payload: Omit<InspectDamageTablePreferences, 'updatedAt'>) => {
+      setDamageTablePreferences(payload);
+      if (typeof window === 'undefined') return;
+      try {
+        window.localStorage.setItem(
+          DATABASE_DAMAGE_TABLE_PREFS_STORAGE_KEY,
+          serializeInspectDamageTablePreferences({
+            ...payload,
+            updatedAt: new Date().toISOString(),
+          }),
+        );
+      } catch {
+        // Keep table usable if storage is blocked or full.
+      }
+    },
+    [],
+  );
+
+  const resetPersistedDamageTablePreferences = useCallback(() => {
+    setDamageTablePreferences(null);
+    if (typeof window === 'undefined') return;
+    window.localStorage.removeItem(DATABASE_DAMAGE_TABLE_PREFS_STORAGE_KEY);
+  }, []);
+
+  const {
+    data: damageResponse = null,
+    isLoading: isDamageInspectLoading,
+    isFetching: isDamageInspectFetching,
+    error: damageInspectError,
+  } = useQuery({
+    queryKey: ['damage-inspect', 'all-calculated'],
+    queryFn: () => damageApi.inspectCalculated(),
+    refetchInterval: (query) => {
+      const data = query.state.data as DamageInspectResponse | undefined;
+      if (!data) return false;
+      const hasRunningScope = (data.scopes ?? []).some((scope) =>
+        isDamageCalculationActive({ programId: scope.program_id, version: scope.version }),
+      );
+      return hasRunningScope ? 2000 : false;
+    },
+  });
+  const runningDamageScopes = useMemo(
+    () =>
+      (damageResponse?.scopes ?? []).filter((scope) =>
+        isDamageCalculationActive({ programId: scope.program_id, version: scope.version }),
+      ),
+    [damageResponse?.scopes],
+  );
+  const damageViewState = useMemo(
+    () => resolveInspectDamageViewState({ response: damageResponse, canWrite }),
+    [canWrite, damageResponse],
+  );
+  const damageRowsByEventId = useMemo(() => {
+    const map = new Map<string, DamageInspectResponse['rows'][number]>();
+    for (const row of damageResponse?.rows ?? []) {
+      map.set(row.event_id, row);
+    }
+    return map;
+  }, [damageResponse]);
+  const damageChannelMetadata = useMemo(() => {
+    const map = new Map<string, DamageInspectResponse['channels'][number]>();
+    for (const channel of damageResponse?.channels ?? []) {
+      map.set(channel.channel_key, channel);
+    }
+    return map;
+  }, [damageResponse]);
+  const allDamageEvents = useMemo<EventMetadata[]>(() => {
+    const byId = new Map(catalogEvents.map((event) => [event.event_id, event]));
+    const orderedEvents: EventMetadata[] = [];
+    for (const row of damageResponse?.rows ?? []) {
+      const event = byId.get(row.event_id);
+      if (event) orderedEvents.push(event);
+    }
+    return orderedEvents;
+  }, [catalogEvents, damageResponse?.rows]);
+  const isDamageTableLoading =
+    isDamageInspectLoading || isDamageInspectFetching || isCatalogLoading;
+
   const dataColumnsTotalWidth = useMemo(
     () =>
       visibleColumnDefs.reduce(
@@ -737,173 +854,225 @@ export default function DatabasePage() {
         {/* Right Panel - Data Table */}
         <div className="flex-1 min-w-0 min-h-0">
           <Card className="h-full rounded-r-lg rounded-l-none flex flex-col gap-0 overflow-hidden shadow-subtle border py-0">
-            {/* Table Header */}
             <div className="shrink-0 flex items-center justify-between border-b px-4 py-3">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-medium">Datasets</p>
-                {isDatasetsRefreshing && (
+              <div className="flex min-h-9 items-center gap-2">
+                <div
+                  role="tablist"
+                  aria-label="Database table views"
+                  className="inline-flex items-center rounded-md bg-muted/70 p-0.5"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === 'datasets'}
+                    onClick={() => setActiveTab('datasets')}
+                    className={cn(
+                      'text-sm font-medium rounded-sm px-2.5 py-0.5 transition-colors',
+                      activeTab === 'datasets'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    Datasets
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === 'damage'}
+                    onClick={() => setActiveTab('damage')}
+                    className={cn(
+                      'text-sm font-medium rounded-sm px-2.5 py-0.5 transition-colors',
+                      activeTab === 'damage'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    Damage Table
+                  </button>
+                </div>
+                {activeTab === 'datasets' && isDatasetsRefreshing && (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     Refreshing datasets...
                   </div>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      aria-label="Column visibility"
-                      className="min-w-[5.75rem] justify-center"
-                    >
-                      <Columns className="size-4" />
-                      Cols
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-56 p-3" align="end">
-                    <div className="space-y-3">
-                      <div className="text-xs font-semibold">Column Visibility</div>
-                      <div className="space-y-2 bg-muted/70 rounded-md p-2">
-                        {toggleableColumnDefinitions.map((col) => {
-                          const isChecked = visibleColumns[col.key];
-                          const isDisabled = false; // Allow all columns to be visible
-
-                          return (
-                            <div
-                              key={col.key}
-                              className="flex items-center space-x-2"
-                            >
-                              <Checkbox
-                                id={col.key}
-                                checked={isChecked}
-                                onCheckedChange={(checked) =>
-                                  handleColumnVisibilityToggle(col.key, checked as boolean)
-                                }
-                                disabled={isDisabled}
-                                className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                              />
-                              <label
-                                htmlFor={col.key}
-                                className={`text-xs cursor-pointer flex-1 ${
-                                  isDisabled ? 'text-muted-foreground opacity-50' : ''
-                                }`}
-                              >
-                                {col.label}
-                              </label>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <div className="text-xs text-muted-foreground pt-2 border-t">
-                        {Object.values(visibleColumns).filter(Boolean).length} columns visible
-                      </div>
+              {activeTab === 'datasets' ? (
+                <div className="flex items-center gap-2">
+                  <Popover>
+                    <PopoverTrigger asChild>
                       <Button
                         type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={resetTablePreferences}
-                        className="h-7 w-full justify-start px-2 text-xs"
+                        variant="outline"
+                        aria-label="Column visibility"
+                        className="min-w-[5.75rem] justify-center"
                       >
-                        Reset table preferences
+                        <Columns className="size-4" />
+                        Cols
                       </Button>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleDeleteSelected}
-                  disabled={selectedDatasets.length === 0 || isDeleteBusy}
-                  className={cn(
-                    'min-w-[5.75rem] justify-center',
-                    selectedDatasets.length > 0 &&
-                      'text-destructive border-destructive/30 hover:bg-destructive/10',
-                  )}
-                >
-                  {isDeleteBusy ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" />
-                      Deleting...
-                    </>
-                  ) : (
-                    <>
-                      <Trash2 className="size-4" />
-                      Delete
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-56 p-3" align="end">
+                      <div className="space-y-3">
+                        <div className="text-xs font-semibold">Column Visibility</div>
+                        <div className="space-y-2 bg-muted/70 rounded-md p-2">
+                          {toggleableColumnDefinitions.map((col) => {
+                            const isChecked = visibleColumns[col.key];
+                            const isDisabled = false;
 
-            {/* Tree Content (single horizontal-scroll container shared by
-                header + rows so columns line up regardless of scroll). */}
-            <CardContent className="flex-1 min-h-0 overflow-auto p-0">
-              {programVersions.length > 0 ? (
-                <div style={{ minWidth: totalRowWidth }}>
-                  <div className="sticky top-0 z-10 flex items-center py-2 px-3 border-b bg-card text-xs font-semibold text-foreground/70">
-                    <div
-                      className="relative flex items-center gap-2 shrink-0 pl-1"
-                      style={{ width: programIdWidth }}
-                    >
-                      <span>Job ID</span>
-                      <ColumnResizeHandle
-                        width={programIdWidth}
-                        onResize={(next) => setColumnWidth(PROGRAM_ID_KEY, next)}
-                      />
-                    </div>
-                    <div className="flex items-center">
-                      {visibleColumnDefs.map((col) => (
-                        <FilterableColumnHeader
-                          key={col.key}
-                          label={col.label}
-                          field={col.key}
-                          width={columnWidths[col.key] ?? MIN_COLUMN_PX}
-                          sortField={sortField}
-                          sortDirection={sortDirection}
-                          onSort={handleSort}
-                          columnFilters={columnFilters}
-                          onColumnFilterChange={handleColumnFilterChange}
-                          uniqueValues={getUniqueValues}
-                          onResize={(next) => setColumnWidth(col.key, next)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                  <DatabaseEventTree
-                    datasets={sortedDatasets}
-                    programVersions={programVersions}
-                    selectedDatasets={selectedDatasets}
-                    onBatchSelect={handleBatchSelect}
-                    isDeletingIds={isDeletingIds}
-                    columnDefinitions={visibleColumnDefs}
-                    getColumnValue={getColumnValue}
-                    columnWidths={columnWidths}
-                    programIdWidth={programIdWidth}
-                  />
-                </div>
-              ) : isDatasetsLoading ? (
-                <div className="flex flex-col items-center justify-center h-[400px] text-center">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
-                  <p className="text-xs text-muted-foreground">
-                    Refreshing datasets...
-                  </p>
+                            return (
+                              <div
+                                key={col.key}
+                                className="flex items-center space-x-2"
+                              >
+                                <Checkbox
+                                  id={col.key}
+                                  checked={isChecked}
+                                  onCheckedChange={(checked) =>
+                                    handleColumnVisibilityToggle(col.key, checked as boolean)
+                                  }
+                                  disabled={isDisabled}
+                                  className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                                />
+                                <label
+                                  htmlFor={col.key}
+                                  className={`text-xs cursor-pointer flex-1 ${
+                                    isDisabled ? 'text-muted-foreground opacity-50' : ''
+                                  }`}
+                                >
+                                  {col.label}
+                                </label>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="text-xs text-muted-foreground pt-2 border-t">
+                          {Object.values(visibleColumns).filter(Boolean).length} columns visible
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={resetTablePreferences}
+                          className="h-7 w-full justify-start px-2 text-xs"
+                        >
+                          Reset table preferences
+                        </Button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleDeleteSelected}
+                    disabled={selectedDatasets.length === 0 || isDeleteBusy}
+                    className={cn(
+                      'min-w-[5.75rem] justify-center',
+                      selectedDatasets.length > 0 &&
+                        'text-destructive border-destructive/30 hover:bg-destructive/10',
+                    )}
+                  >
+                    {isDeleteBusy ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" />
+                        Deleting...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="size-4" />
+                        Delete
+                      </>
+                    )}
+                  </Button>
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center h-[400px] text-center">
-                  <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                    <FileSpreadsheet className="h-8 w-8 text-muted-foreground" />
-                  </div>
-                  <h3 className="text-sm font-medium text-foreground mb-1">
-                    No datasets yet
-                  </h3>
-                  <p className="text-xs text-muted-foreground max-w-[280px]">
-                    Upload CSV or RSP files with a
-                    channel_map.yaml to get started.
-                  </p>
-                </div>
+                <div className="min-h-9" />
               )}
-            </CardContent>
+            </div>
+            {activeTab === 'datasets' ? (
+              <CardContent className="flex-1 min-h-0 overflow-auto p-0">
+                {programVersions.length > 0 ? (
+                  <div style={{ minWidth: totalRowWidth }}>
+                    <div className="sticky top-0 z-10 flex items-center py-2 px-3 border-b bg-card text-xs font-semibold text-foreground/70">
+                      <div
+                        className="relative flex items-center gap-2 shrink-0 pl-1"
+                        style={{ width: programIdWidth }}
+                      >
+                        <span>Job ID</span>
+                        <ColumnResizeHandle
+                          width={programIdWidth}
+                          onResize={(next) => setColumnWidth(PROGRAM_ID_KEY, next)}
+                        />
+                      </div>
+                      <div className="flex items-center">
+                        {visibleColumnDefs.map((col) => (
+                          <FilterableColumnHeader
+                            key={col.key}
+                            label={col.label}
+                            field={col.key}
+                            width={columnWidths[col.key] ?? MIN_COLUMN_PX}
+                            sortField={sortField}
+                            sortDirection={sortDirection}
+                            onSort={handleSort}
+                            columnFilters={columnFilters}
+                            onColumnFilterChange={handleColumnFilterChange}
+                            uniqueValues={getUniqueValues}
+                            onResize={(next) => setColumnWidth(col.key, next)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <DatabaseEventTree
+                      datasets={sortedDatasets}
+                      programVersions={programVersions}
+                      selectedDatasets={selectedDatasets}
+                      onBatchSelect={handleBatchSelect}
+                      isDeletingIds={isDeletingIds}
+                      columnDefinitions={visibleColumnDefs}
+                      getColumnValue={getColumnValue}
+                      columnWidths={columnWidths}
+                      programIdWidth={programIdWidth}
+                    />
+                  </div>
+                ) : isDatasetsLoading ? (
+                  <div className="flex flex-col items-center justify-center h-[400px] text-center">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
+                    <p className="text-xs text-muted-foreground">
+                      Refreshing datasets...
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-[400px] text-center">
+                    <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                      <FileSpreadsheet className="h-8 w-8 text-muted-foreground" />
+                    </div>
+                    <h3 className="text-sm font-medium text-foreground mb-1">
+                      No datasets yet
+                    </h3>
+                    <p className="text-xs text-muted-foreground max-w-[280px]">
+                      Upload CSV or RSP files with a
+                      channel_map.yaml to get started.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            ) : (
+              <DamageTableView
+                title="Damage Table"
+                events={allDamageEvents}
+                damageRowsByEventId={damageRowsByEventId}
+                channelMetadata={damageChannelMetadata}
+                isLoading={isDamageTableLoading}
+                inspectError={damageInspectError}
+                viewState={damageViewState}
+                isCalculatingDamage={runningDamageScopes.length > 0}
+                preferencesLoaded={damageTablePreferencesLoaded}
+                tablePreferences={damageTablePreferences}
+                onSetTablePreferences={setPersistedDamageTablePreferences}
+                onResetTablePreferences={resetPersistedDamageTablePreferences}
+                emptyStateTitle="No calculated damage available"
+                emptyStateDescription="Run a damage calculation to populate the table with all program/version results."
+              />
+            )}
           </Card>
         </div>
       </div>

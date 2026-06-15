@@ -1,7 +1,5 @@
 'use client';
 
-import { useMemo } from 'react';
-import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
@@ -11,13 +9,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { DAMAGE_CHANNELS } from '../lib/damage-channel-axis';
 import {
   DAMAGE_PLOT_TYPE_OPTIONS,
   type DamagePlotOverlayState,
-  type DamagePlotScaleMode,
   type DamagePlotType,
-  type DamagePlotValueMode,
 } from '../lib/damage-plot-overlay-types';
 
 type DamagePlotOverlayControlsProps = {
@@ -29,44 +24,9 @@ type DamagePlotOverlayControlsProps = {
   cappedTotal?: number;
   cappedShown?: number;
   onPlotTypeChange: (plotType: DamagePlotType) => void;
-  onValueModeChange: (valueMode: DamagePlotValueMode) => void;
-  onChannelToggle: (channelKey: string) => void;
   onVersionChange: (version: string) => void;
-  onDamageScaleModeChange: (mode: DamagePlotScaleMode) => void;
   className?: string;
 };
-
-function SegmentedToggle<T extends string>({
-  label,
-  options,
-  value,
-  onChange,
-}: {
-  label: string;
-  options: { value: T; label: string }[];
-  value: T;
-  onChange: (next: T) => void;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      <div className="inline-flex w-full items-center rounded-md border p-0.5">
-        {options.map((option) => (
-          <Button
-            key={option.value}
-            type="button"
-            size="sm"
-            variant={value === option.value ? 'secondary' : 'ghost'}
-            className="h-6 flex-1 px-2 text-[11px]"
-            onClick={() => onChange(option.value)}
-          >
-            {option.label}
-          </Button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export function DamagePlotOverlayControls({
   state,
@@ -77,16 +37,9 @@ export function DamagePlotOverlayControls({
   cappedTotal = 0,
   cappedShown = 0,
   onPlotTypeChange,
-  onValueModeChange,
-  onChannelToggle,
   onVersionChange,
-  onDamageScaleModeChange,
   className,
 }: DamagePlotOverlayControlsProps) {
-  const selectedChannelSet = useMemo(
-    () => new Set(state.selectedChannelKeys),
-    [state.selectedChannelKeys],
-  );
   const effectiveVersion =
     state.version && versions.includes(state.version) ? state.version : versions[0];
 
@@ -127,43 +80,6 @@ export function DamagePlotOverlayControls({
           </div>
         </div>
 
-        <SegmentedToggle
-          label="Value mode"
-          value={state.valueMode}
-          onChange={onValueModeChange}
-          options={[
-            { value: 'absolute', label: 'Absolute' },
-            { value: 'normalized', label: 'Normalized' },
-          ]}
-        />
-
-        <div className="flex min-h-0 flex-1 flex-col space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-muted-foreground">Channels</span>
-            <span className="text-[10px] text-muted-foreground">
-              {state.selectedChannelKeys.length}/{DAMAGE_CHANNELS.length}
-            </span>
-          </div>
-          <div className="flex min-h-0 flex-1 flex-wrap content-start gap-1 overflow-y-auto">
-            {DAMAGE_CHANNELS.map((channel) => {
-              const selected = selectedChannelSet.has(channel.key);
-              return (
-                <Button
-                  key={channel.key}
-                  type="button"
-                  size="sm"
-                  variant={selected ? 'secondary' : 'outline'}
-                  className="h-6 px-2 text-[10px]"
-                  onClick={() => onChannelToggle(channel.key)}
-                  aria-pressed={selected}
-                >
-                  {channel.shortLabel}
-                </Button>
-              );
-            })}
-          </div>
-        </div>
-
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">Version slice</label>
           <Select
@@ -183,16 +99,6 @@ export function DamagePlotOverlayControls({
             </SelectContent>
           </Select>
         </div>
-
-        <SegmentedToggle
-          label="Damage scale"
-          value={state.damageScaleMode}
-          onChange={onDamageScaleModeChange}
-          options={[
-            { value: 'linear', label: 'Normal' },
-            { value: 'log', label: 'Log' },
-          ]}
-        />
 
         {isCapped ? (
           <p className="text-xs text-amber-700">

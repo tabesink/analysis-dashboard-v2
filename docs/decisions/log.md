@@ -1687,3 +1687,39 @@ Keep legacy generic `col_N` pattern matching in `damage_channels.py` as a separa
 **Rationale:** Read requests should not own command policy or hidden lifecycle side effects. Removing repair/prerequisite checks from inspect keeps command/query boundaries explicit: schedule save/upload owns lifecycle starts; inspect only reports persisted state.
 
 **Key files:** `server/services/damage_inspect.py`, `tests/server/routers/test_damage_router.py`, `docs/tasks/DPR-31-04.md`.
+
+---
+
+## DEC-111 — Inspect Damage comparison uses one scope per side (PU-35)
+
+**Date:** 2026-06-15
+
+**Decision:** The PRD-35 Inspect Damage comparison workflow compares exactly one Reference program/version scope against exactly one Target program/version scope. Users may select multiple events inside each chosen scope, but mixed program/version selections within one side are out of scope. The plotting UI will not expose a version slice control; program/version labels are derived from the selected Reference and Target scopes.
+
+**Rationale:** One-scope-per-side keeps comparison labels, plot aggregation semantics, and 3D focus behavior clear while keeping the implementation lightweight for a small 5-10 user team. It avoids ambiguous multi-version plots and removes the need for a separate version selector in the plot surface.
+
+**Key files:** `docs/brainstorm/35_plotting_upgrades/PRD.md`, `docs/brainstorm/35_plotting_upgrades/IMPLEMENTATION_MAP.md`, `docs/brainstorm/35_plotting_upgrades/issues/PU-35-01.md`.
+
+---
+
+## DEC-112 — Sidepanel owns Plot Inputs state (PU-35-02)
+
+**Date:** 2026-06-15
+
+**Decision:** Move Inspect Damage channel selection (`selected_channel_keys`) and value mode (`value_mode`) controls into a sidepanel `Plot Inputs` section rendered below `Target Load Data`. Keep these controls out of the 3D overlay rail. Enforce a one-channel-minimum invariant at sidepanel update time.
+
+**Rationale:** PRD-35 defines sidepanel ownership for persistent comparison inputs while keeping the plot surface focused on plot-local display controls. This prevents split ownership between sidepanel and overlay, keeps session semantics deterministic, and avoids accidental coupling to table column visibility.
+
+**Key files:** `client/src/components/dashboard/side-panel/ComparisonLoadDataSections.tsx`, `client/src/components/dashboard/side-panel/ComparisonPlotInputsSection.tsx`, `client/src/features/inspect-damage-3d/components/DamagePlotView.tsx`, `client/src/features/inspect-damage-3d/components/DamagePlotOverlayControls.tsx`, `docs/tasks/PU-35-02.md`.
+
+---
+
+## DEC-113 — Shared damage-scale transform and in-plot toggle (PU-35-04)
+
+**Date:** 2026-06-15
+
+**Decision:** Extract a shared client utility `applyDamageScale(value, mode)` for Inspect Damage plot transforms. Support `linear` and `log` modes, where log mode is `log10(1 + value)`, and clamp negative/non-finite inputs to `0` before applying scale. Keep damage-scale mode as local plot-surface state in `DamagePlotView`, render a subtle `Normal`/`Log` control inside the main focused 3D plot area, and remove damage-scale controls from the left overlay rail.
+
+**Rationale:** PRD-35 requires a subtle in-plot damage-scale toggle and a shared transform that 3D and upcoming 2D specs can reuse. Centralizing transform math prevents drift across plot types while keeping sidepanel ownership boundaries unchanged (`Plot Inputs` still own channels + value mode only).
+
+**Key files:** `client/src/features/inspect-damage-3d/lib/damage-scale.ts`, `client/src/features/inspect-damage-3d/components/DamagePlotView.tsx`, `client/src/features/inspect-damage-3d/components/DamagePlotOverlayControls.tsx`, `client/src/features/inspect-damage-3d/__tests__/damage-scale.test.ts`, `docs/tasks/PU-35-04.md`.

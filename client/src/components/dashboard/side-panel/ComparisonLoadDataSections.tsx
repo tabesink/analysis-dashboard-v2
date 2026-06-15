@@ -1,11 +1,64 @@
 'use client';
 
 import { Separator } from '@/components/ui/separator';
+import { toast } from 'sonner';
 import { LoadDataEventTreeSection } from './LoadDataSection';
 import type { DamageComparisonState, LoadDatasetSelectionState } from '@/types/damage-comparison';
 import type { EventMetadata } from '@/types/api';
 
 type ComparisonDatasetKey = keyof Pick<DamageComparisonState, 'reference' | 'target'>;
+
+function getEventScopeKey(event: Pick<EventMetadata, 'program_id' | 'version'>): string {
+  return `${event.program_id}::${event.version}`;
+}
+
+function selectedIdsEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+export function enforceSingleProgramVersionScope(params: {
+  currentSelectedEventIds: string[];
+  nextSelectedEventIds: string[];
+  events: EventMetadata[];
+}): string[] {
+  const { currentSelectedEventIds, nextSelectedEventIds, events } = params;
+  if (nextSelectedEventIds.length <= 1) return nextSelectedEventIds;
+
+  const eventById = new Map(events.map((event) => [event.event_id, event]));
+  const scopeToEventIds = new Map<string, string[]>();
+
+  for (const eventId of nextSelectedEventIds) {
+    const event = eventById.get(eventId);
+    if (!event) continue;
+    const scopeKey = getEventScopeKey(event);
+    const scopedIds = scopeToEventIds.get(scopeKey);
+    if (scopedIds) {
+      scopedIds.push(eventId);
+    } else {
+      scopeToEventIds.set(scopeKey, [eventId]);
+    }
+  }
+
+  if (scopeToEventIds.size <= 1) {
+    return nextSelectedEventIds;
+  }
+
+  const previousIds = new Set(currentSelectedEventIds);
+  const newlyAddedIds = nextSelectedEventIds.filter((eventId) => !previousIds.has(eventId));
+  const latestAddedId = newlyAddedIds.at(-1);
+  const latestAddedScope = latestAddedId
+    ? eventById.get(latestAddedId)
+    : undefined;
+
+  if (latestAddedScope) {
+    const scopeKey = getEventScopeKey(latestAddedScope);
+    return scopeToEventIds.get(scopeKey) ?? [latestAddedId];
+  }
+
+  const fallbackScopeIds = scopeToEventIds.values().next().value as string[] | undefined;
+  return fallbackScopeIds ?? nextSelectedEventIds;
+}
 
 export function resolveComparisonLoadDataEmptyMessage(params: {
   dataset: ComparisonDatasetKey;
@@ -62,11 +115,27 @@ export function ComparisonLoadDataSections({
     dataset: ComparisonDatasetKey,
     selected_event_ids: string[],
   ) => {
+    const currentSelectedEventIds = comparison[dataset].selected_event_ids;
+    const normalizedSelectedEventIds = enforceSingleProgramVersionScope({
+      currentSelectedEventIds,
+      nextSelectedEventIds: selected_event_ids,
+      events,
+    });
+
+    if (
+      selected_event_ids.length > 0 &&
+      !selectedIdsEqual(selected_event_ids, normalizedSelectedEventIds)
+    ) {
+      const sideLabel = dataset === 'reference' ? 'Reference' : 'Target';
+      toast.info(
+        `${sideLabel} can include one program/version scope at a time. Selection moved to the new scope.`,
+      );
+    }
+
     onUpdateComparison({
-      [dataset]: { selected_event_ids } as LoadDatasetSelectionState,
+      [dataset]: { selected_event_ids: normalizedSelectedEventIds } as LoadDatasetSelectionState,
     });
   };
-
   return (
     <>
       <LoadDataEventTreeSection
@@ -110,6 +179,9 @@ export function ComparisonLoadDataSections({
           targetSelectedCount,
         })}
       />
+      <div className="py-1">
+        <Separator className="bg-border/70" />
+      </div>
     </>
   );
 }

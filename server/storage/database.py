@@ -1416,6 +1416,19 @@ class UnifiedStore:
         columns = [desc[0] for desc in self.read_connection.description]
         return [dict(zip(columns, row)) for row in rows]
 
+    def list_event_ids_with_persisted_damage(self) -> list[str]:
+        """Return non-deleted event IDs that have persisted damage rows."""
+        rows = self.read_connection.execute(
+            """
+            SELECT DISTINCT e.event_id
+            FROM event_channel_damage d
+            JOIN dim_event e ON e.event_id = d.event_id
+            WHERE e.is_deleted = false
+            ORDER BY e.program_id, e.version, e.event_id
+            """
+        ).fetchall()
+        return [str(row[0]) for row in rows]
+
     def list_event_channel_damage_for_event_ids(
         self,
         event_ids: list[str],

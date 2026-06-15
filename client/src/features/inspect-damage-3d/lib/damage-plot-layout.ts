@@ -32,11 +32,19 @@ export function computeDamagePlotLayout(
     return Math.max(minVisibleBarHeight, (value / maxDamage) * maxBarHeight);
   };
 
-  const eventLabels = Array.from(
-    new Map(cells.map((cell) => [cell.eventIndex, cell.eventLabel])).entries(),
-  )
-    .sort(([a], [b]) => a - b)
-    .map(([, label]) => label);
+  const eventRows = Array.from(
+    new Map(
+      cells.map((cell) => [
+        cell.eventIndex,
+        {
+          eventId: cell.eventId,
+          label: cell.eventLabel,
+        },
+      ]),
+    ).entries(),
+  ).sort(([a], [b]) => a - b);
+  const eventIds = eventRows.map(([, row]) => row.eventId);
+  const eventLabels = eventRows.map(([, row]) => row.label);
 
   const channelLabels = [...channels]
     .sort((a, b) => a.order - b.order)
@@ -65,6 +73,7 @@ export function computeDamagePlotLayout(
   return {
     bars,
     channelLabels,
+    eventIds,
     eventLabels,
     cellSpacing: spacing,
     minDamage,

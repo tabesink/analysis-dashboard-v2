@@ -21,11 +21,17 @@ vi.mock('./LoadDataSection', () => ({
     return <div data-section-title={props.sectionTitle} />;
   },
 }));
+const toastInfo = vi.fn();
+vi.mock('sonner', () => ({
+  toast: {
+    info: (...args: unknown[]) => toastInfo(...args),
+  },
+}));
 
 const baseComparison: DamageComparisonState = {
   reference: { selected_event_ids: [] },
   target: { selected_event_ids: [] },
-  selected_channel_keys: [],
+  selected_channel_keys: ['bj_x_force', 'bj_y_force'],
   value_mode: 'absolute',
   aggregation_event_scope: 'selected_only',
 };
@@ -35,6 +41,18 @@ const events: EventMetadata[] = [
     event_id: 'event-1',
     program_id: 'P1',
     version: 'V1',
+    status: 'Approved',
+  },
+  {
+    event_id: 'event-2',
+    program_id: 'P1',
+    version: 'V1',
+    status: 'Approved',
+  },
+  {
+    event_id: 'event-3',
+    program_id: 'P1',
+    version: 'V2',
     status: 'Approved',
   },
 ];
@@ -117,4 +135,94 @@ describe('ComparisonLoadDataSections', () => {
     expect(capturedSections[0]?.emptyMessage).toBe('No events match current filters');
     expect(capturedSections[1]?.emptyMessage).toBe('No events match current filters');
   });
+
+  it('keeps same-scope selections for reference side', () => {
+    capturedSections.length = 0;
+    const onUpdateComparison = vi.fn();
+
+    renderToStaticMarkup(
+      <ComparisonLoadDataSections
+        comparison={baseComparison}
+        events={events}
+        isLoading={false}
+        onUpdateComparison={onUpdateComparison}
+      />,
+    );
+
+    capturedSections[0]?.onSelectedEventIdsChange(['event-1', 'event-2']);
+
+    expect(onUpdateComparison).toHaveBeenCalledWith({
+      reference: { selected_event_ids: ['event-1', 'event-2'] },
+    });
+  });
+
+  it('replaces reference selection when a different program/version scope is selected', () => {
+    capturedSections.length = 0;
+    const onUpdateComparison = vi.fn();
+
+    renderToStaticMarkup(
+      <ComparisonLoadDataSections
+        comparison={{
+          ...baseComparison,
+          reference: { selected_event_ids: ['event-1'] },
+        }}
+        events={events}
+        isLoading={false}
+        onUpdateComparison={onUpdateComparison}
+      />,
+    );
+
+    capturedSections[0]?.onSelectedEventIdsChange(['event-1', 'event-3']);
+
+    expect(onUpdateComparison).toHaveBeenCalledWith({
+      reference: { selected_event_ids: ['event-3'] },
+    });
+  });
+
+  it('resets active scope when reference selection is cleared', () => {
+    capturedSections.length = 0;
+    const onUpdateComparison = vi.fn();
+
+    renderToStaticMarkup(
+      <ComparisonLoadDataSections
+        comparison={{
+          ...baseComparison,
+          reference: { selected_event_ids: ['event-1'] },
+        }}
+        events={events}
+        isLoading={false}
+        onUpdateComparison={onUpdateComparison}
+      />,
+    );
+
+    capturedSections[0]?.onSelectedEventIdsChange([]);
+
+    expect(onUpdateComparison).toHaveBeenCalledWith({
+      reference: { selected_event_ids: [] },
+    });
+  });
+
+  it('replaces target selection when a different program/version scope is selected', () => {
+    capturedSections.length = 0;
+    const onUpdateComparison = vi.fn();
+
+    renderToStaticMarkup(
+      <ComparisonLoadDataSections
+        comparison={{
+          ...baseComparison,
+          target: { selected_event_ids: ['event-1'] },
+        }}
+        events={events}
+        isLoading={false}
+        onUpdateComparison={onUpdateComparison}
+      />,
+    );
+
+    capturedSections[1]?.onSelectedEventIdsChange(['event-1', 'event-3']);
+
+    expect(onUpdateComparison).toHaveBeenCalledWith({
+      target: { selected_event_ids: ['event-3'] },
+    });
+  });
+
 });

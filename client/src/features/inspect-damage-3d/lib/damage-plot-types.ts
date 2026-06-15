@@ -59,6 +59,7 @@ export type DamagePlotBar = DamagePlotCell & {
 export type DamagePlotLayout = {
   bars: DamagePlotBar[];
   channelLabels: string[];
+  eventIds: string[];
   eventLabels: string[];
   cellSpacing: number;
   minDamage: number;

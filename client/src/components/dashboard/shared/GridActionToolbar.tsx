@@ -1,6 +1,6 @@
 'use client';
 
-import { Download, MapPinPlusInside, Play, Square, Undo2, X } from 'lucide-react';
+import { MapPinPlusInside, Play, Square, Undo2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -13,10 +13,8 @@ export interface DashboardWorkspaceActionsProps {
   hasPendingRerenderChanges: boolean;
   renderDisabled: boolean;
   clearDisabled: boolean;
-  exportDisabled?: boolean;
   onRender: () => void;
   onClear: () => void;
-  onExport?: () => void;
   onReturnToGrid: () => void;
   onTogglePinnedMode: () => void;
 }
@@ -66,10 +64,8 @@ export function DashboardWorkspaceActions({
   hasPendingRerenderChanges,
   renderDisabled,
   clearDisabled,
-  exportDisabled = true,
   onRender,
   onClear,
-  onExport,
   onReturnToGrid,
   onTogglePinnedMode,
 }: DashboardWorkspaceActionsProps) {
@@ -84,7 +80,6 @@ export function DashboardWorkspaceActions({
       ? 'Re-render'
       : 'Render';
 
-  const exportLabel = exportDisabled ? 'Export coming soon' : 'Export plots';
   const pinViewLabel = isPinnedModeActive ? 'Disable pinned view' : 'Enable pinned view';
 
   return (
@@ -108,32 +103,28 @@ export function DashboardWorkspaceActions({
       >
         <MapPinPlusInside className="size-4" />
       </HeaderActionButton>
-      <HeaderActionButton
-        label={exportLabel}
-        text="Export"
-        disabled={exportDisabled}
-        onClick={onExport}
-      >
-        <Download className="size-4" />
-      </HeaderActionButton>
-      <HeaderActionButton
-        label={renderLabel}
-        text={renderText}
-        disabled={renderDisabled}
-        active={isRendering}
-        variant={isRendering ? 'outline' : 'default'}
-        onClick={onRender}
-      >
-        {isRendering ? <Square className="size-4" /> : <Play className="size-4" />}
-      </HeaderActionButton>
-      <HeaderActionButton
-        label="Clear plots"
-        text="Clear"
-        disabled={clearDisabled}
-        onClick={onClear}
-      >
-        <X className="size-4" />
-      </HeaderActionButton>
+      {!isInteractiveView ? (
+        <>
+          <HeaderActionButton
+            label={renderLabel}
+            text={renderText}
+            disabled={renderDisabled}
+            active={isRendering}
+            variant={isRendering ? 'outline' : 'default'}
+            onClick={onRender}
+          >
+            {isRendering ? <Square className="size-4" /> : <Play className="size-4" />}
+          </HeaderActionButton>
+          <HeaderActionButton
+            label="Clear plots"
+            text="Clear"
+            disabled={clearDisabled}
+            onClick={onClear}
+          >
+            <X className="size-4" />
+          </HeaderActionButton>
+        </>
+      ) : null}
     </div>
   );
 }

@@ -8,6 +8,12 @@ export const damageApi = {
     });
   },
 
+  inspectCalculated(): Promise<DamageInspectResponse> {
+    return post<DamageInspectResponse>('/api/v1/damage/inspect', {
+      include_all_calculated: true,
+    });
+  },
+
   calculate(programId: string, version: string): Promise<DamageCalculateResponse> {
     return post<DamageCalculateResponse>('/api/v1/damage/calculate', {
       program_id: programId,

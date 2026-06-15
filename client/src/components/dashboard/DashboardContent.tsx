@@ -83,10 +83,6 @@ export function DashboardContent({
     }
   }, [isInteractiveView, resetCurveVisibility, workspace.actions, clearSelectedInteractivePlot, isRendering, stopRendering]);
 
-  const handleExport = useCallback(() => {
-    // Reserved for upcoming grid export flow.
-  }, []);
-
   return (
     <Card
       className={`h-full min-w-0 flex-1 rounded-r-lg rounded-l-none flex flex-col gap-0 overflow-hidden shadow-subtle border py-0 ${className}`}
@@ -104,10 +100,8 @@ export function DashboardContent({
           hasPendingRerenderChanges={workspace.state.hasUnrenderedChanges}
           renderDisabled={!workspace.state.canRender}
           clearDisabled={clearDisabled}
-          exportDisabled
           onRender={handleRender}
           onClear={handleClear}
-          onExport={handleExport}
           onReturnToGrid={() => onTabChange('grid')}
           onTogglePinnedMode={togglePinnedMode}
         />

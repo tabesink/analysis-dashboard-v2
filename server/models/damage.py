@@ -33,6 +33,7 @@ class DamageFailureReport(BaseModel):
 
 class DamageInspectRequest(BaseModel):
     event_ids: list[str] = Field(default_factory=list)
+    include_all_calculated: bool = False
 
 
 class DamageChannelMetadata(BaseModel):

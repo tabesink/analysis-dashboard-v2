@@ -35,6 +35,7 @@ async def inspect_damage(
         query_service.db,
         query_service,
         event_ids=request.event_ids,
+        include_all_calculated=request.include_all_calculated,
     )
 
 
