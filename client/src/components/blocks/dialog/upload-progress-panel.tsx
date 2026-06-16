@@ -10,12 +10,18 @@ import {
 } from '@/components/blocks/dialog/operation-progress-stepper';
 
 const UPLOAD_PHASES: Array<{ id: UploadProgressPhase; label: string }> = [
-  { id: 'uploading', label: 'Uploading files' },
-  { id: 'validating', label: 'Validating and converting' },
-  { id: 'processing', label: 'Processing events' },
+  { id: 'upload_received', label: 'Upload received' },
+  { id: 'converting', label: 'Converting source files' },
+  { id: 'validating', label: 'Validating parsed data' },
+  { id: 'writing', label: 'Writing canonical events' },
 ];
 
-const UPLOAD_PHASE_ORDER: UploadProgressPhase[] = ['uploading', 'validating', 'processing'];
+const UPLOAD_PHASE_ORDER: UploadProgressPhase[] = [
+  'upload_received',
+  'converting',
+  'validating',
+  'writing',
+];
 
 export interface UploadProgressPanelProps {
   progress: number;

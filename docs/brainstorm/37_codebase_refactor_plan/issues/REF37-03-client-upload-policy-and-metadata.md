@@ -39,17 +39,21 @@ Use toast notifications for lightweight validation and informational feedback, s
 
 ## Acceptance Criteria
 
-- [ ] One client helper behavior test is added and made green at a time.
-- [ ] Selected-file tests cover CSV-only, RSP-only, mixed CSV/RSP rejection, optional channel-map companion, and unsupported files.
-- [ ] Metadata tests cover required fields and current label-to-payload mapping.
-- [ ] `Program ID` still maps to the existing job-number payload field.
-- [ ] The side-panel disabled/error state and submit path consume the same helper result.
-- [ ] Validation and ignored-file feedback use the app's toast notification system consistently.
-- [ ] Toast tests or existing mocked-toast coverage prove users receive the expected lightweight feedback.
-- [ ] Existing user-facing labels remain stable.
-- [ ] `docs/tasks/REF37-03.md` records behavior changed, interfaces changed, and tests added.
-- [ ] GitNexus impact analysis is run before editing hook/component/helper symbols.
-- [ ] Focused client tests pass.
+- [x] One client helper behavior test is added and made green at a time.
+- [x] Selected-file tests cover CSV-only, RSP-only, mixed CSV/RSP rejection, optional channel-map companion, and unsupported files.
+- [x] Metadata tests cover required fields and current label-to-payload mapping.
+- [x] `Program ID` still maps to the existing job-number payload field.
+- [x] The side-panel disabled/error state and submit path consume the same helper result.
+- [x] Validation and ignored-file feedback use the app's toast notification system consistently.
+- [x] Toast tests or existing mocked-toast coverage prove users receive the expected lightweight feedback.
+- [x] Existing user-facing labels remain stable.
+- [x] `docs/tasks/REF37-03.md` records behavior changed, interfaces changed, and tests added.
+- [x] GitNexus impact analysis is run before editing hook/component/helper symbols.
+- [x] Focused client tests pass.
+
+## Completion Note (2026-06-16)
+
+Implemented via shared client upload-policy helpers in `client/src/features/database-upload/upload-policy.ts` and adoption in `client/src/app/database/page.tsx` plus `client/src/components/upload/UploadDataSection.tsx`; behavior is covered by `client/src/features/database-upload/upload-policy.test.ts` and documented in `docs/tasks/REF37-03.md`.
 
 ## Blocked By
 

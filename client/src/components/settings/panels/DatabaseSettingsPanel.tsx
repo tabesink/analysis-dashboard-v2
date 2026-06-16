@@ -1,43 +1,21 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useCallback } from 'react';
 import { toast } from 'sonner';
-import { exportApi } from '@/lib/api';
-import { useDatabaseOperation } from '@/hooks/use-database-operation';
-import { useDatabaseSwitch } from '@/hooks/use-database-switch';
-import { DatabaseSection } from '@/components/upload/DatabaseSection';
-import { DatabaseOperationModal } from '@/components/upload/DatabaseOperationModal';
-import { DatabaseSwitchDialog } from '@/components/upload/DatabaseSwitchDialog';
-import { selectCanWrite, selectIsAdmin, useAuthStore } from '@/stores/auth-store';
+import {
+  DatabaseOperationModal,
+  DatabaseSection,
+  DatabaseSwitchDialog,
+  useDatabaseOperation,
+  useDatabaseSwitch,
+} from '@/features/database/portability';
+import { selectIsAdmin, useAuthStore } from '@/stores/auth-store';
 
 export function DatabaseSettingsPanel() {
-  const queryClient = useQueryClient();
   const isAdmin = useAuthStore(selectIsAdmin);
-  const canWrite = useAuthStore(selectCanWrite);
-  const [eventCount, setEventCount] = useState(0);
+  const dbOperation = useDatabaseOperation();
 
-  useEffect(() => {
-    void exportApi
-      .getDatabaseInfo()
-      .then((info) => setEventCount(info.event_count))
-      .catch(() => undefined);
-  }, []);
-
-  const onImportComplete = useCallback(() => {
-    void queryClient.invalidateQueries();
-    void exportApi
-      .getDatabaseInfo()
-      .then((info) => setEventCount(info.event_count))
-      .catch(() => undefined);
-  }, [queryClient]);
-
-  const dbOperation = useDatabaseOperation({
-    currentEventCount: eventCount,
-    onImportComplete,
-  });
-
-  const dbSwitch = useDatabaseSwitch({ isAdmin, canWrite });
+  const dbSwitch = useDatabaseSwitch({ isAdmin });
 
   const handleExportDatabase = async () => {
     if (!isAdmin) {
@@ -45,14 +23,6 @@ export function DatabaseSettingsPanel() {
       return;
     }
     await dbOperation.startExport();
-  };
-
-  const handleImportClick = () => {
-    if (!isAdmin) {
-      toast.error('Admin access required');
-      return;
-    }
-    dbOperation.openImport();
   };
 
   if (!isAdmin) {
@@ -70,13 +40,10 @@ export function DatabaseSettingsPanel() {
         isCreatingDatabase={dbSwitch.isCreatingDatabase}
         isConnectingDatabase={dbSwitch.isConnectingDatabase}
         isExporting={dbOperation.isExporting}
-        isImporting={dbOperation.isImporting}
-        isImportBusy={dbOperation.isImportBusy}
         exportProgress={dbOperation.exportProgress || undefined}
         onCreateDatabase={dbSwitch.handleCreateDatabase}
         onConnectDatabase={dbSwitch.handleConnectDatabase}
         onExportDatabase={handleExportDatabase}
-        onImportClick={handleImportClick}
       />
       <DatabaseOperationModal {...dbOperation.modalProps} />
       <DatabaseSwitchDialog {...dbSwitch.dialogProps} />

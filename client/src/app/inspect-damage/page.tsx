@@ -20,6 +20,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { isDamageCalculationActive } from '@/stores/damage-calculation-store';
 import { DAMAGE_CHANNELS } from '@/features/inspect-damage-3d/lib/damage-channel-axis';
 import { DamagePlotView } from '@/features/inspect-damage-3d/components/DamagePlotView';
+import { buildRspEventNameById } from '@/features/inspect-damage-3d/lib/resolve-rsp-event-name';
 import {
   buildDamageComparisonViewModel,
   getComparisonInspectEventIds,
@@ -55,6 +56,7 @@ export default function InspectDamagePage() {
     inspectEventIds,
     events,
   );
+  const eventNameByEventId = useMemo(() => buildRspEventNameById(selectedEvents), [selectedEvents]);
   const isPanelReady = isSessionReady && !isEventsLoading;
   const expandSidePanel = () => setSidePanelCollapsed(false);
   const inspectScopes = useMemo(
@@ -154,6 +156,7 @@ export default function InspectDamagePage() {
             <DamagePlotView
               comparison={effectiveComparison}
               comparisonViewModel={comparisonViewModel}
+              eventNameByEventId={eventNameByEventId}
               onUpdateComparison={updateComparison}
             />
           </Card>

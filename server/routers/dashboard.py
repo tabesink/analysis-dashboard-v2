@@ -20,10 +20,16 @@ from server.dependencies import (
     WriteUserDep,
     get_current_user,
 )
-from server.models.damage import DamageFailureReport
-from server.utils.channel_map_file import is_valid_channel_map_filename
+from server.services.dashboard_orchestration import (
+    parse_schedule_preview,
+    require_uploaded_data_edit_permission,
+    schedule_damage_extension,
+    start_channel_reprocess_from_entries,
+    start_channel_reprocess_from_yaml_upload,
+)
 from server.models.derived_data_task import DerivedTaskStartResponse, DerivedTaskStatusEvent
 from server.services.derived_data_task import build_derived_task_status_event
+from server.upload.task_kinds import DERIVED_DATA_TASK_KINDS
 from server.models.dashboard import (
     ChannelMapEntry,
     ChannelMapEditorResponse,
@@ -942,19 +948,19 @@ async def save_program_version_channel_map(
     write_user: WriteUserDep,
 ) -> DerivedTaskStartResponse:
     """Save the fixed channel map and start async retained-artifact reprocessing."""
-    can_edit = ingestion_service.db.user_can_edit_program_version(
-        request.program_id,
-        request.version,
-        write_user["id"],
-        write_user["role"] == "admin",
-    )
-    if not can_edit:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only edit channel maps for uploads you own",
-        )
     try:
-        result = ingestion_service.start_channel_reprocess_from_save(
+        require_uploaded_data_edit_permission(
+            store=ingestion_service.db,
+            program_id=request.program_id,
+            version=request.version,
+            user_id=write_user["id"],
+            role=write_user["role"],
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    try:
+        result = start_channel_reprocess_from_entries(
+            ingestion_service=ingestion_service,
             program_id=request.program_id,
             version=request.version,
             entries=[entry.model_dump() for entry in request.entries],
@@ -977,29 +983,22 @@ async def upload_program_version_channel_map(
     channel_map: Annotated[list[UploadFile], File(description="channel_map.yml or channel_map.yaml")],
 ) -> DerivedTaskStartResponse:
     """Upload a channel-map YAML file and start async retained-artifact reprocessing."""
-    can_edit = ingestion_service.db.user_can_edit_program_version(
-        program_id,
-        version,
-        write_user["id"],
-        write_user["role"] == "admin",
+    try:
+        require_uploaded_data_edit_permission(
+            store=ingestion_service.db,
+            program_id=program_id,
+            version=version,
+            user_id=write_user["id"],
+            role=write_user["role"],
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    try:
+        _filename, channel_map_content = await start_channel_reprocess_from_yaml_upload(
+            channel_map_files=channel_map,
     )
-    if not can_edit:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only edit channel maps for uploads you own",
-        )
-    if len(channel_map) != 1:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Upload exactly one channel_map.yml or channel_map.yaml file",
-        )
-    selected_file = channel_map[0]
-    if not selected_file.filename or not is_valid_channel_map_filename(selected_file.filename):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Upload exactly one channel_map.yml or channel_map.yaml file",
-        )
-    channel_map_content = await selected_file.read()
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     try:
         result = ingestion_service.start_channel_reprocess_from_yaml(
             program_id=program_id,
@@ -1030,46 +1029,9 @@ async def get_derived_data_task(
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     task_kind = str(row.get("task_kind") or "")
-    if task_kind not in {"channel_reprocess", "damage_calculation"}:
+    if task_kind not in DERIVED_DATA_TASK_KINDS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     return build_derived_task_status_event(task_id, row)
-
-
-def _schedule_preview_from_json(parse_preview_json: str) -> DurabilitySchedulePreview:
-    preview = json.loads(parse_preview_json)
-    return DurabilitySchedulePreview(**preview)
-
-
-def _schedule_damage_extension(
-    damage_service: DamageCalculationTaskServiceDep,
-    *,
-    program_id: str,
-    version: str,
-    user_id: str,
-    active_schedule: dict[str, Any],
-    previous_preview: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    from server.services.post_upload_precompute import (
-        decide_after_schedule_save,
-        schedule_precompute_decision_to_extension,
-    )
-
-    decision = decide_after_schedule_save(
-        damage_service.db,
-        program_id=program_id,
-        version=version,
-        user_id=user_id,
-        active_schedule=active_schedule,
-        damage_service=damage_service,
-        previous_preview=previous_preview,
-    )
-    raw = schedule_precompute_decision_to_extension(decision)
-    extension: dict[str, Any] = dict(raw)
-    if "damage_prerequisite_report" in extension:
-        extension["damage_prerequisite_report"] = DamageFailureReport(
-            **extension["damage_prerequisite_report"]
-        )
-    return extension
 
 
 @router.post(
@@ -1085,17 +1047,16 @@ async def attach_program_version_schedule(
     schedule_file: Annotated[UploadFile, File(description="Autodam .sch durability schedule")],
 ) -> DurabilityScheduleAttachResponse:
     """Attach or replace the active durability schedule for a program/version."""
-    can_edit = schedule_storage.db.user_can_edit_program_version(
-        program_id,
-        version,
-        write_user["id"],
-        write_user["role"] == "admin",
-    )
-    if not can_edit:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only attach schedules for uploads you own",
+    try:
+        require_uploaded_data_edit_permission(
+            store=schedule_storage.db,
+            program_id=program_id,
+            version=version,
+            user_id=write_user["id"],
+            role=write_user["role"],
         )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
     filename = schedule_file.filename or "schedule.sch"
     if not filename.lower().endswith(".sch"):
@@ -1138,8 +1099,8 @@ async def attach_program_version_schedule(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No durability schedule attached for this program/version",
         )
-    damage_extension = _schedule_damage_extension(
-        damage_service,
+    damage_extension = schedule_damage_extension(
+        damage_service=damage_service,
         program_id=program_id,
         version=version,
         user_id=write_user["id"],
@@ -1155,7 +1116,7 @@ async def attach_program_version_schedule(
         source_filename=stored.source_filename,
         replaced_previous=stored.replaced_previous,
         previous_schedule_id=stored.previous_schedule_id,
-        parse_preview=_schedule_preview_from_json(stored.parse_preview_json),
+        parse_preview=DurabilitySchedulePreview(**parse_schedule_preview(stored.parse_preview_json)),
         **damage_extension,
     )
 
@@ -1184,7 +1145,9 @@ async def get_program_version_schedule(
         artifact_uri=str(active["artifact_uri"]),
         schedule_sha256=str(active["schedule_sha256"]),
         source_filename=str(active["source_filename"]),
-        parse_preview=_schedule_preview_from_json(str(active["parse_preview_json"])),
+        parse_preview=DurabilitySchedulePreview(
+            **parse_schedule_preview(str(active["parse_preview_json"]))
+        ),
     )
 
 
@@ -1199,17 +1162,16 @@ async def save_program_version_schedule(
     damage_service: DamageCalculationTaskServiceDep,
 ) -> DurabilityScheduleContextResponse:
     """Persist edited durability schedule table rows on the active schedule artifact."""
-    can_edit = schedule_storage.db.user_can_edit_program_version(
-        request.program_id,
-        request.version,
-        write_user["id"],
-        write_user["role"] == "admin",
-    )
-    if not can_edit:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only attach schedules for uploads you own",
+    try:
+        require_uploaded_data_edit_permission(
+            store=schedule_storage.db,
+            program_id=request.program_id,
+            version=request.version,
+            user_id=write_user["id"],
+            role=write_user["role"],
         )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
     try:
         previous_active = schedule_storage.db.get_active_durability_schedule(
@@ -1217,7 +1179,7 @@ async def save_program_version_schedule(
             request.version,
         )
         previous_preview = (
-            json.loads(str(previous_active["parse_preview_json"]))
+            parse_schedule_preview(str(previous_active["parse_preview_json"]))
             if previous_active is not None
             else None
         )
@@ -1237,8 +1199,8 @@ async def save_program_version_schedule(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    damage_extension = _schedule_damage_extension(
-        damage_service,
+    damage_extension = schedule_damage_extension(
+        damage_service=damage_service,
         program_id=request.program_id,
         version=request.version,
         user_id=write_user["id"],
@@ -1253,7 +1215,9 @@ async def save_program_version_schedule(
         artifact_uri=str(active["artifact_uri"]),
         schedule_sha256=str(active["schedule_sha256"]),
         source_filename=str(active["source_filename"]),
-        parse_preview=_schedule_preview_from_json(str(active["parse_preview_json"])),
+        parse_preview=DurabilitySchedulePreview(
+            **parse_schedule_preview(str(active["parse_preview_json"]))
+        ),
         **damage_extension,
     )
 

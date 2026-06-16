@@ -65,6 +65,7 @@ def test_attach_schedule_allows_write_user_for_own_program_version(
         },
     )
     assert create.status_code == 201, create.text
+    writer_id = create.json()["id"]
     _logout(auth_client)
 
     login(auth_client, "schedule_writer", "password1234")
@@ -73,7 +74,7 @@ def test_attach_schedule_allows_write_user_for_own_program_version(
         event_id="event-schedule-writer",
         program_id="P-SCH-WRITE",
         version="V1",
-        uploaded_by_user_id=auth_client.app.state.db.get_user_by_username("schedule_writer")["id"],
+        uploaded_by_user_id=writer_id,
         status="Pending",
     )
 
@@ -135,7 +136,7 @@ def test_attach_schedule_denies_write_user_for_other_owners_program_version(
         files={"schedule_file": ("blocked.sch", io.BytesIO(_sample_sch_bytes()), "text/plain")},
     )
     assert response.status_code == 403
-    assert response.json()["detail"] == "You can only attach schedules for uploads you own"
+    assert response.json()["detail"] == "You can only edit uploaded data you own"
 
 
 def _attach_schedule(
@@ -174,6 +175,49 @@ def _assert_schedule_command_contract(body: dict) -> None:
         assert body.get("damage_prerequisite_report") is not None
 
 
+def _seed_ready_scope_for_schedule_commands(
+    client: TestClient,
+    *,
+    program_id: str,
+    version: str,
+    uploader_id: str,
+) -> str:
+    event_id = f"event-{program_id.lower()}-{version.lower()}-ready"
+    client.app.state.db.insert_event(
+        event_id=event_id,
+        program_id=program_id,
+        version=version,
+        uploaded_by_user_id=uploader_id,
+        status="Approved",
+        source_file="pattern_a_event.csv",
+    )
+    client.app.state.db.upsert_event_derived_data(
+        event_id=event_id,
+        ingestion_run_id=1,
+        derived_artifact_id=1,
+        channel_map_snapshot_id=1,
+        measurements_status="current",
+        lttb_status="current",
+        measurements_data_kind="raw",
+        lttb_data_kind="lttb",
+    )
+    return event_id
+
+
+def _count_scope_damage_tasks(client: TestClient, *, program_id: str, version: str) -> int:
+    row = client.app.state.db.read_connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM upload_tasks
+        WHERE task_kind = 'damage_calculation'
+          AND json_extract_string(scope_json, '$.program_id') = ?
+          AND json_extract_string(scope_json, '$.version') = ?
+        """,
+        [program_id, version],
+    ).fetchone()
+    return int(row[0] if row else 0)
+
+
 def test_get_schedule_returns_404_when_none_attached(auth_client: TestClient) -> None:
     _login_admin(auth_client)
 
@@ -186,12 +230,12 @@ def test_get_schedule_returns_404_when_none_attached(auth_client: TestClient) ->
 
 
 def test_get_schedule_returns_active_schedule_context(auth_client: TestClient) -> None:
-    _login_admin(auth_client)
+    admin_id = _login_admin(auth_client)["id"]
     auth_client.app.state.db.insert_event(
         event_id="event-schedule-get",
         program_id="P-SCH-GET",
         version="V1",
-        uploaded_by_user_id=auth_client.app.state.db.get_user_by_username(ADMIN_USERNAME)["id"],
+        uploaded_by_user_id=admin_id,
         status="Pending",
     )
 
@@ -213,12 +257,12 @@ def test_get_schedule_returns_active_schedule_context(auth_client: TestClient) -
 
 
 def test_attach_schedule_rejects_empty_file(auth_client: TestClient) -> None:
-    _login_admin(auth_client)
+    admin_id = _login_admin(auth_client)["id"]
     auth_client.app.state.db.insert_event(
         event_id="event-schedule-empty",
         program_id="P-SCH-EMPTY",
         version="V1",
-        uploaded_by_user_id=auth_client.app.state.db.get_user_by_username(ADMIN_USERNAME)["id"],
+        uploaded_by_user_id=admin_id,
         status="Pending",
     )
 
@@ -232,12 +276,12 @@ def test_attach_schedule_rejects_empty_file(auth_client: TestClient) -> None:
 
 
 def test_attach_schedule_rejects_non_sch_extension(auth_client: TestClient) -> None:
-    _login_admin(auth_client)
+    admin_id = _login_admin(auth_client)["id"]
     auth_client.app.state.db.insert_event(
         event_id="event-schedule-bad-ext",
         program_id="P-SCH-BAD-EXT",
         version="V1",
-        uploaded_by_user_id=auth_client.app.state.db.get_user_by_username(ADMIN_USERNAME)["id"],
+        uploaded_by_user_id=admin_id,
         status="Pending",
     )
 
@@ -285,13 +329,50 @@ def test_attach_schedule_allows_admin_for_other_owners_program_version(
     assert body["replaced_previous"] is False
 
 
+def test_attach_schedule_starts_damage_calculation_only_when_prerequisites_ready(
+    auth_client: TestClient,
+) -> None:
+    admin_id = _login_admin(auth_client)["id"]
+    blocked_program_id = "P-SCH-CMD-BLOCKED"
+    auth_client.app.state.db.insert_event(
+        event_id="event-schedule-cmd-blocked",
+        program_id=blocked_program_id,
+        version="V1",
+        uploaded_by_user_id=admin_id,
+        status="Pending",
+        source_file="pattern_a_event.csv",
+    )
+
+    blocked = _attach_schedule(auth_client, program_id=blocked_program_id, version="V1")
+    assert blocked["schedule_command_outcome"] == "validation_blocked"
+    assert blocked["damage_task_id"] is None
+    assert _count_scope_damage_tasks(
+        auth_client,
+        program_id=blocked_program_id,
+        version="V1",
+    ) == 0
+
+    ready_program_id = "P-SCH-CMD-READY"
+    _seed_ready_scope_for_schedule_commands(
+        auth_client,
+        program_id=ready_program_id,
+        version="V1",
+        uploader_id=admin_id,
+    )
+
+    ready = _attach_schedule(auth_client, program_id=ready_program_id, version="V1")
+    assert ready["schedule_command_outcome"] == "calculation_started"
+    assert ready["damage_task_id"]
+    assert ready["damage_task_status"] == "calculating"
+
+
 def test_attach_identical_schedule_dedupes_without_replacement(auth_client: TestClient) -> None:
-    _login_admin(auth_client)
+    admin_id = _login_admin(auth_client)["id"]
     auth_client.app.state.db.insert_event(
         event_id="event-schedule-dedupe",
         program_id="P-SCH-DEDUPE",
         version="V1",
-        uploaded_by_user_id=auth_client.app.state.db.get_user_by_username(ADMIN_USERNAME)["id"],
+        uploaded_by_user_id=admin_id,
         status="Pending",
     )
 
@@ -348,13 +429,13 @@ def _save_schedule_payload(
 
 
 def test_put_schedule_save_round_trips_event_rows(auth_client: TestClient) -> None:
-    _login_admin(auth_client)
+    admin_id = _login_admin(auth_client)["id"]
     event_id = "event-schedule-save-roundtrip"
     auth_client.app.state.db.insert_event(
         event_id=event_id,
         program_id="P-SCH-SAVE",
         version="V1",
-        uploaded_by_user_id=auth_client.app.state.db.get_user_by_username(ADMIN_USERNAME)["id"],
+        uploaded_by_user_id=admin_id,
         status="Pending",
         source_file="mf4e3_100_bt1cc_coil.rsp",
     )
@@ -385,6 +466,34 @@ def test_put_schedule_save_round_trips_event_rows(auth_client: TestClient) -> No
     )
     assert get_response.status_code == 200, get_response.text
     assert get_response.json()["parse_preview"]["event_rows"][0]["event_id"] == event_id
+
+
+def test_put_schedule_save_starts_damage_calculation_when_prerequisites_ready(
+    auth_client: TestClient,
+) -> None:
+    admin_id = _login_admin(auth_client)["id"]
+    program_id = "P-SCH-SAVE-READY"
+    event_id = _seed_ready_scope_for_schedule_commands(
+        auth_client,
+        program_id=program_id,
+        version="V1",
+        uploader_id=admin_id,
+    )
+    _attach_schedule(auth_client, program_id=program_id, version="V1")
+
+    response = auth_client.put(
+        "/api/v1/dashboard/program-version/schedule",
+        json=_save_schedule_payload(
+            program_id=program_id,
+            version="V1",
+            event_id=event_id,
+        ),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["schedule_command_outcome"] in {"calculation_started", "reused_active_task"}
+    assert body["damage_task_id"]
+    assert body["damage_task_status"] == "calculating"
 
 
 def test_put_schedule_save_returns_404_without_active_schedule(auth_client: TestClient) -> None:
@@ -443,17 +552,17 @@ def test_put_schedule_save_forbids_non_owner_write_user(auth_client: TestClient)
         ),
     )
     assert response.status_code == 403
-    assert response.json()["detail"] == "You can only attach schedules for uploads you own"
+    assert response.json()["detail"] == "You can only edit uploaded data you own"
 
 
 def test_put_schedule_save_rejects_invalid_numeric_payload(auth_client: TestClient) -> None:
-    _login_admin(auth_client)
+    admin_id = _login_admin(auth_client)["id"]
     event_id = "event-schedule-save-invalid"
     auth_client.app.state.db.insert_event(
         event_id=event_id,
         program_id="P-SCH-SAVE-INVALID",
         version="V1",
-        uploaded_by_user_id=auth_client.app.state.db.get_user_by_username(ADMIN_USERNAME)["id"],
+        uploaded_by_user_id=admin_id,
         status="Pending",
     )
     _attach_schedule(auth_client, program_id="P-SCH-SAVE-INVALID", version="V1")
@@ -473,12 +582,12 @@ def test_put_schedule_save_rejects_invalid_numeric_payload(auth_client: TestClie
 
 
 def test_put_schedule_save_rejects_unknown_event_id(auth_client: TestClient) -> None:
-    _login_admin(auth_client)
+    admin_id = _login_admin(auth_client)["id"]
     auth_client.app.state.db.insert_event(
         event_id="event-schedule-save-known",
         program_id="P-SCH-SAVE-UNKNOWN",
         version="V1",
-        uploaded_by_user_id=auth_client.app.state.db.get_user_by_username(ADMIN_USERNAME)["id"],
+        uploaded_by_user_id=admin_id,
         status="Pending",
     )
     _attach_schedule(auth_client, program_id="P-SCH-SAVE-UNKNOWN", version="V1")

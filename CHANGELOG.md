@@ -4,6 +4,15 @@
 - Shared per-event channel resolver and header provider for derived-data readers: plot mappings resolve lookup channel names from each event's stored preview headers (with ingestion artifact `#TITLES` fallback) instead of duplicating ingestion-only header parsing (IDM-28-01).
 
 ### Changed
+- Inspect Damage 2D damage-plot legends now use a shared right-side vertical overlay with larger text, transparent background, and no border chrome; absolute-by-event cards show all event legend rows (scrollable) and prefer derived RSP event names when available.
+- Folder-upload lane rules are now centralized in a pure server policy contract (`server/upload/policies.py`) used by `POST /api/v1/upload/folder/start`: CSV/RSP exclusivity, optional `channel_map.yaml`/`channel_map.yml` companion detection from folder selections, stable upload task/phase names, and explicit unsupported-file handling semantics are now test-covered (REF37-02).
+- Client folder-upload preflight now uses shared upload-policy helpers for selected-file classification and metadata payload mapping across side-panel display and submit handling; lightweight validation/info feedback (missing metadata, mixed CSV/RSP rejection, no uploadable files, ignored unrelated files) now flows through the app toast system with focused helper tests (REF37-03).
+- Folder-upload operation progress now renders backend folder phases directly in stable order (`upload_received`, `converting`, `validating`, `writing`), ignores non-folder downstream task updates during polling, keeps transient connection-loss details in the upload dialog, and shows explicit completed/failed/cancelled terminal summaries while toasts are limited to high-level lifecycle outcomes (REF37-04).
+- Uploaded-data permission semantics are now wired through named server policy helpers (`has_contributor_edit_uploaded_data_policy`, `has_uploaded_data_admin_policy`, `has_scope_delete_uploaded_data_policy`) across channel-map, schedule, and scope-delete routes, with explicit role-behavior regression coverage for contributor-owner, non-owner contributor, and admin paths (REF37-06).
+- Database import has been removed from the active product surface: import UI controls are no longer offered in Database settings, and database import upload/start/cancel endpoints now return `410 Gone` with guidance to use database export plus create/connect workflow instead (REF37-07).
+- Database export and database create/connect/delete now operate as one explicit admin-only database-administration lane: list/connect routes now enforce admin access, settings copy distinguishes whole-database administration from folder upload, and export lifecycle uses toast feedback for start/cancel/failure/completion while keeping detailed progress/download status in the operation dialog (REF37-08).
+- Upload/derived task-kind names are now centralized in shared server constants, and startup reconciliation now terminalizes stale active upload/derived task rows (`queued`/`running` -> `failed/failed`) so restarted servers do not leave misleading in-flight task state or block one-active-derived-task-per-scope reuse checks (REF37-09).
+- Upload task polling/SSE payloads now include minimal structured observability fields (`task_owner_user_id`, `task_kind`, `scope`, `terminal_state`, `result_summary`, `error_details`) while keeping existing status/phase/progress/result fields backward-compatible (REF37-12).
 - Inspect Damage 2D plot row now shows only **Cumulative by channel** and **Target Δ vs Reference** in a two-column layout with larger cards; the cumulative-by-program/version card was removed. The focused 3D plot now expands to fill all remaining main-panel height below the 2D cards.
 - Inspect Damage Reference/Target sidepanel selections now enforce one `program_id/version` scope per side: same-scope multi-select still works, cross-scope picks replace that side with the new scope, and users get explicit toast feedback when replacement occurs (PU-35-01).
 - Inspect Damage now renders a sidepanel `Plot Inputs` section below `Target Load Data`; channel selection and value mode are sidepanel-owned comparison controls (with one-channel minimum enforcement), and the 3D overlay rail no longer owns those controls (PU-35-02).
@@ -99,6 +108,7 @@
 
 ### Security
 - Program-version metadata updates (`PUT /api/v1/dashboard/program-version/metadata`) now require write permission; read-only users can no longer bypass the edit-page route guard via direct API calls.
+- Folder upload start (`POST /api/v1/upload/folder/start`) now enforces write/admin permission at the route guard, preventing read-only users from triggering payload parsing or ingestion task creation.
 
 ## [1.3.7] - 2026-05-19
 

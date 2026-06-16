@@ -39,15 +39,15 @@ Introduce shared task-kind constants and startup reconciliation for stale/runnin
 
 ## Acceptance Criteria
 
-- [ ] Tests prove task-kind constants preserve current folder-upload and derived-task behavior.
-- [ ] Tests prove one active derived task per program/version remains enforced.
-- [ ] Tests prove folder-upload tasks are not returned or reused as derived tasks.
-- [ ] Startup reconciliation tests prove stale/running tasks do not remain misleading after restart.
-- [ ] Removed database-import task kinds are not used by active flows.
-- [ ] `IMPLEMENTATION_MAP.md` is updated with final task-kind names and reconciliation semantics.
-- [ ] `docs/tasks/REF37-09.md` records behavior changed, interfaces changed, and tests added.
-- [ ] GitNexus impact analysis is run before editing task/store/service symbols.
-- [ ] Focused tests pass.
+- [x] Tests prove task-kind constants preserve current folder-upload and derived-task behavior.
+- [x] Tests prove one active derived task per program/version remains enforced.
+- [x] Tests prove folder-upload tasks are not returned or reused as derived tasks.
+- [x] Startup reconciliation tests prove stale/running tasks do not remain misleading after restart.
+- [x] Removed database-import task kinds are not used by active flows.
+- [x] `IMPLEMENTATION_MAP.md` is updated with final task-kind names and reconciliation semantics.
+- [x] `docs/tasks/REF37-09.md` records behavior changed, interfaces changed, and tests added.
+- [x] GitNexus impact analysis is run before editing task/store/service symbols.
+- [x] Focused tests pass.
 
 ## Blocked By
 

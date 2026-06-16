@@ -37,15 +37,15 @@ Lock down the derived-data lane boundaries with behavior tests and any small nam
 
 ## Acceptance Criteria
 
-- [ ] A behavior test proves channel-map upload/edit starts or reports channel reprocess only.
-- [ ] A behavior test proves schedule upload/edit starts damage calculation only when prerequisites are ready.
-- [ ] A behavior test proves Inspect Damage does not create, repair, or backfill damage rows as a side effect.
-- [ ] A behavior test proves explicit backfill is the visible write-user repair command.
-- [ ] Existing one-active-derived-task behavior remains green.
-- [ ] User-visible names distinguish folder upload, channel reprocess, damage calculation, and backfill.
-- [ ] `IMPLEMENTATION_MAP.md` is updated if any task-kind or response-shaping contract changes.
-- [ ] `docs/tasks/REF37-05.md` records behavior changed, interfaces changed, and tests added.
-- [ ] GitNexus impact analysis is run before editing derived-data symbols.
+- [x] A behavior test proves channel-map upload/edit starts or reports channel reprocess only.
+- [x] A behavior test proves schedule upload/edit starts damage calculation only when prerequisites are ready.
+- [x] A behavior test proves Inspect Damage does not create, repair, or backfill damage rows as a side effect.
+- [x] A behavior test proves explicit backfill is the visible write-user repair command.
+- [x] Existing one-active-derived-task behavior remains green.
+- [x] User-visible names distinguish folder upload, channel reprocess, damage calculation, and backfill.
+- [x] `IMPLEMENTATION_MAP.md` is updated if any task-kind or response-shaping contract changes.
+- [x] `docs/tasks/REF37-05.md` records behavior changed, interfaces changed, and tests added.
+- [x] GitNexus impact analysis is run before editing derived-data symbols.
 - [ ] Focused tests pass.
 
 ## Blocked By
@@ -55,3 +55,7 @@ Lock down the derived-data lane boundaries with behavior tests and any small nam
 ## Next Slice Can Assume
 
 Derived-data workflows are explicitly separated from folder upload and Inspect Damage is protected as a read model.
+
+## Completion Note (2026-06-16)
+
+Implemented with router-level boundary tests and documentation updates; see `docs/tasks/REF37-05.md`.

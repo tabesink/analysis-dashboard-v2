@@ -33,6 +33,13 @@ from server.models.upload import (
     UploadTaskStartResponse,
     ValidationIssue,
 )
+from server.upload.policies import (
+    FOLDER_UPLOAD_PHASE_UPLOAD_RECEIVED,
+    classify_upload_filenames,
+    has_scope_delete_uploaded_data_policy,
+    require_data_files,
+    SCOPE_DELETE_FORBIDDEN_DETAIL,
+)
 from server.utils.logging import get_audit_logger
 
 router = APIRouter(prefix="/upload")
@@ -84,16 +91,60 @@ def _to_upload_response(result: object | None) -> UploadResponse | None:
 
 def _build_upload_task_event(task_id: str, row: dict[str, object]) -> UploadTaskEvent:
     """Build a poll/SSE upload task payload from a database row."""
+    status_value = str(row.get("status") or "queued")
+    terminal_state = status_value if status_value in {"completed", "failed", "cancelled"} else None
+    error_value = row.get("error")
+    parsed_error_details: dict[str, object] | None = None
+    if isinstance(error_value, dict):
+        parsed_error_details = {str(key): value for key, value in error_value.items()}
+    elif isinstance(error_value, str) and error_value.strip():
+        try:
+            loaded_error = json.loads(error_value)
+        except json.JSONDecodeError:
+            parsed_error_details = {"message": error_value}
+        else:
+            if isinstance(loaded_error, dict):
+                parsed_error_details = {str(key): value for key, value in loaded_error.items()}
+            elif loaded_error is not None:
+                parsed_error_details = {"details": loaded_error}
+    result_payload = row.get("result_json")
+    result_summary: str | None = None
+    if isinstance(result_payload, dict):
+        summary = result_payload.get("summary")
+        if isinstance(summary, str) and summary.strip():
+            result_summary = summary
+        else:
+            success = bool(result_payload.get("success"))
+            file_count = len(result_payload.get("files", [])) if isinstance(result_payload.get("files"), list) else 0
+            event_count = (
+                len(result_payload.get("event_ids", []))
+                if isinstance(result_payload.get("event_ids"), list)
+                else int(row.get("completed_events") or 0)
+            )
+            result_summary = (
+                f"{'Succeeded' if success else 'Failed'}: "
+                f"{event_count} events across {file_count} files"
+            )
     return UploadTaskEvent(
         task_id=str(row.get("task_id") or task_id),
-        status=str(row.get("status") or "queued"),
-        phase=str(row.get("phase") or "upload_received"),
+        status=status_value,
+        terminal_state=terminal_state,
+        task_owner_user_id=(
+            str(row.get("created_by_user_id"))
+            if row.get("created_by_user_id") is not None
+            else None
+        ),
+        task_kind=str(row.get("task_kind") or "folder_upload"),
+        scope=row.get("scope_json") if isinstance(row.get("scope_json"), dict) else None,
+        phase=str(row.get("phase") or FOLDER_UPLOAD_PHASE_UPLOAD_RECEIVED),
         completed_events=int(row.get("completed_events") or 0),
         total_events=int(row.get("total_events") or 0),
         current_event=row.get("current_event"),  # type: ignore[arg-type]
         progress_message=row.get("progress_message"),  # type: ignore[arg-type]
-        error=row.get("error"),  # type: ignore[arg-type]
-        result=_to_upload_response(row.get("result_json")),
+        error=str(error_value) if isinstance(error_value, str) else None,
+        error_details=parsed_error_details,
+        result_summary=result_summary,
+        result=_to_upload_response(result_payload),
     )
 
 
@@ -149,14 +200,46 @@ async def _parse_upload_payload(
                 detail=f"Upload exceeds max size of {settings.max_upload_size_mb} MB",
             )
 
-    # Read data files. Ignore unrelated folder contents, but keep one data format per batch.
+    # Classify data files with pure upload-lane policy rules.
+    try:
+        classification = classify_upload_filenames(
+            [f.filename for f in files if f.filename],
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    try:
+        require_data_files(classification)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    companion_filename = (
+        classification.channel_map_companion_filename if channel_map is None else None
+    )
+
+    # Read data files. Ignore unrelated folder contents per route contract.
     file_data: list[tuple[str, bytes]] = []
-    data_extensions: set[str] = set()
     for f in files:
         if not f.filename:
             continue
         filename = f.filename
         lower_filename = filename.lower()
+
+        if companion_filename is not None and filename == companion_filename:
+            channel_map_content = await f.read()
+            total_bytes += len(channel_map_content)
+            if total_bytes > MAX_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"Upload exceeds max size of {settings.max_upload_size_mb} MB",
+                )
+            continue
+
         if not lower_filename.endswith((".csv", ".rsp")):
             continue
 
@@ -167,20 +250,7 @@ async def _parse_upload_payload(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail=f"Upload exceeds max size of {settings.max_upload_size_mb} MB",
             )
-        data_extensions.add(".rsp" if lower_filename.endswith(".rsp") else ".csv")
         file_data.append((filename, content))
-
-    if not file_data:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="No CSV or RSP files found",
-        )
-
-    if len(data_extensions) > 1:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Upload folders must contain only one data format: CSV or RSP",
-        )
 
     # Build metadata
     if not job_number or not job_number.strip():
@@ -259,7 +329,7 @@ async def _parse_upload_payload(
 @router.post("/folder/start", response_model=UploadTaskStartResponse)
 async def start_upload_folder(
     ingestion_service: IngestionServiceDep,
-    current_user: CurrentUserDep,
+    current_user: WriteUserDep,
     program_id: Annotated[str, Form(description="Program identifier")],
     version: Annotated[str, Form(description="Version identifier")],
     files: Annotated[list[UploadFile], File(description="CSV or RSP files to upload")],
@@ -552,15 +622,16 @@ async def delete_program_version_scope(
             detail="Program/version scope not found",
         )
 
-    if not db.user_can_delete_program_version_scope(
-        request.program_id,
-        request.version,
-        current_user["id"],
-        current_user["role"] == "admin",
+    if not has_scope_delete_uploaded_data_policy(
+        store=db,
+        program_id=request.program_id,
+        version=request.version,
+        user_id=current_user["id"],
+        role=current_user["role"],
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="This program/version contains data owned by another user. Contact an admin to delete it.",
+            detail=SCOPE_DELETE_FORBIDDEN_DETAIL,
         )
 
     result = db.hard_delete_program_version_scope(request.program_id, request.version)

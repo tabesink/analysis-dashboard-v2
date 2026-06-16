@@ -33,3 +33,24 @@ export function buildUploadCompletionResult(params: {
     detailLines,
   };
 }
+
+export function buildUploadFailedResult(params: {
+  errorMessage: string;
+  elapsedSeconds: number;
+}): UploadCompletionResult {
+  return {
+    success: false,
+    title: 'Import failed',
+    message: params.errorMessage,
+    elapsedSeconds: params.elapsedSeconds,
+  };
+}
+
+export function buildUploadCancelledResult(elapsedSeconds: number): UploadCompletionResult {
+  return {
+    success: false,
+    title: 'Import cancelled',
+    message: 'Import was cancelled before completion.',
+    elapsedSeconds,
+  };
+}

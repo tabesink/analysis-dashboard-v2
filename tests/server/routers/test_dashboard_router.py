@@ -185,6 +185,145 @@ def test_upload_program_version_channel_map_starts_channel_reprocess_task(
     assert len(channel_map) == len(FIXED_CHANNEL_MAP_PLOTS)
 
 
+def test_save_program_version_channel_map_starts_channel_reprocess_task(
+    auth_client: TestClient,
+    auth_settings: Settings,
+) -> None:
+    _login_admin(auth_client)
+    create = auth_client.post(
+        "/api/v1/admin/users",
+        json={
+            "username": "channel_map_save_writer",
+            "password": "password1234",
+            "role": "user",
+            "can_write": True,
+        },
+    )
+    assert create.status_code == 201, create.text
+    writer_id = create.json()["id"]
+    _logout(auth_client)
+
+    login_response = auth_client.post(
+        "/api/v1/auth/login",
+        json={"username": "channel_map_save_writer", "password": "password1234"},
+    )
+    assert login_response.status_code == 200
+
+    service = IngestionService(
+        auth_client.app.state.db,
+        auth_client.app.state.cache,
+        auth_settings,
+    )
+    service.ingest(
+        files=[("event_pending_route_save.csv", _csv_with_detected_damage_channels())],
+        program_id="P-ROUTE-SAVE",
+        version="V1",
+        channel_map_content=None,
+        status_value="Pending",
+        is_admin=False,
+        uploaded_by_user_id=writer_id,
+        metadata={"job_number": "JOB-ROUTE", "work_order": "WO-ROUTE"},
+    )
+
+    response = auth_client.put(
+        "/api/v1/dashboard/program-version/channel-map",
+        json={
+            "program_id": "P-ROUTE-SAVE",
+            "version": "V1",
+            "entries": [
+                {"plot_key": plot_key, "x_col": 2, "y_col": 3 if index % 2 == 0 else 4}
+                for index, plot_key in enumerate(FIXED_CHANNEL_MAP_PLOTS)
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["task_kind"] == "channel_reprocess"
+    assert body["reused_existing_task"] is False
+    assert body["task_id"]
+
+
+def test_upload_program_version_channel_map_forbids_non_owner_write_user(
+    auth_client: TestClient,
+    auth_settings: Settings,
+) -> None:
+    owner = _create_writer(auth_client, "channel_map_owner")
+    _create_writer(auth_client, "channel_map_other_writer")
+
+    service = IngestionService(
+        auth_client.app.state.db,
+        auth_client.app.state.cache,
+        auth_settings,
+    )
+    service.ingest(
+        files=[("event_pending_non_owner.csv", _csv_with_detected_damage_channels())],
+        program_id="P-ROUTE-OWNER-ONLY",
+        version="V1",
+        channel_map_content=None,
+        status_value="Pending",
+        is_admin=False,
+        uploaded_by_user_id=owner["id"],
+        metadata={"job_number": "JOB-ROUTE", "work_order": "WO-ROUTE"},
+    )
+
+    _login_writer(auth_client, "channel_map_other_writer")
+    response = auth_client.post(
+        "/api/v1/dashboard/program-version/channel-map/upload",
+        data={"program_id": "P-ROUTE-OWNER-ONLY", "version": "V1"},
+        files={
+            "channel_map": (
+                "channel_map.yml",
+                io.BytesIO(_channel_map_yaml_bytes()),
+                "application/x-yaml",
+            )
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "You can only edit uploaded data you own"
+
+
+def test_upload_program_version_channel_map_allows_admin_for_other_owner_scope(
+    auth_client: TestClient,
+    auth_settings: Settings,
+) -> None:
+    owner = _create_writer(auth_client, "channel_map_admin_owner")
+    _create_writer(auth_client, "channel_map_admin_other")
+
+    service = IngestionService(
+        auth_client.app.state.db,
+        auth_client.app.state.cache,
+        auth_settings,
+    )
+    service.ingest(
+        files=[("event_pending_admin.csv", _csv_with_detected_damage_channels())],
+        program_id="P-ROUTE-ADMIN",
+        version="V1",
+        channel_map_content=None,
+        status_value="Pending",
+        is_admin=False,
+        uploaded_by_user_id=owner["id"],
+        metadata={"job_number": "JOB-ROUTE", "work_order": "WO-ROUTE"},
+    )
+
+    _login_admin(auth_client)
+    response = auth_client.post(
+        "/api/v1/dashboard/program-version/channel-map/upload",
+        data={"program_id": "P-ROUTE-ADMIN", "version": "V1"},
+        files={
+            "channel_map": (
+                "channel_map.yml",
+                io.BytesIO(_channel_map_yaml_bytes()),
+                "application/x-yaml",
+            )
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["task_kind"] == "channel_reprocess"
+    assert body["task_id"]
+
+
 def test_upload_program_version_channel_map_rejects_multiple_files(
     auth_client: TestClient,
     auth_settings: Settings,

@@ -16,6 +16,12 @@ import pandas as pd
 duckdb = importlib.import_module("duckdb")
 
 from server.modules.filter_semantics import build_filter_plan
+from server.upload.task_kinds import (
+    ACTIVE_TASK_STATUSES,
+    DERIVED_DATA_TASK_KINDS,
+    TASK_KIND_DAMAGE_CALCULATION,
+    TASK_KIND_FOLDER_UPLOAD,
+)
 
 from .repositories import SessionsRepository, UsersRepository
 from .data_backfills import apply_startup_backfills
@@ -331,7 +337,12 @@ class UnifiedStore:
 
     def _init_schema(self) -> None:
         """Create all tables if they don't exist."""
-        with self.write_connection() as conn:
+        with self._db_lock:
+            self._ensure_connection_unlocked()
+            conn = self._connection
+            if conn is None:
+                msg = "DuckDB connection failed to open"
+                raise RuntimeError(msg)
             SchemaApplier(self._schema_loader).apply(conn)
             apply_startup_backfills(conn)
 
@@ -2256,11 +2267,11 @@ class UnifiedStore:
             conn.execute(
                 """
                 DELETE FROM upload_tasks
-                WHERE task_kind IN ('channel_reprocess', 'damage_calculation')
+                WHERE task_kind IN (?, ?)
                   AND json_extract_string(scope_json, '$.program_id') = ?
                   AND (? IS NULL OR json_extract_string(scope_json, '$.version') = ?)
                 """,
-                [program_id, version, version],
+                [*DERIVED_DATA_TASK_KINDS, program_id, version, version],
             )
             conn.execute(f"DELETE FROM ingestion_artifacts WHERE {artifact_where}", artifact_params)
             conn.execute(f"DELETE FROM source_artifacts WHERE {artifact_where}", artifact_params)
@@ -2566,7 +2577,7 @@ class UnifiedStore:
         total_events: int,
         ttl_minutes: int = 30,
         *,
-        task_kind: str = "folder_upload",
+        task_kind: str = TASK_KIND_FOLDER_UPLOAD,
         phase: str = "upload_received",
         scope: dict[str, str] | None = None,
     ) -> None:
@@ -2602,14 +2613,19 @@ class UnifiedStore:
             """
             SELECT *
             FROM upload_tasks
-            WHERE task_kind IN ('channel_reprocess', 'damage_calculation')
-              AND status IN ('queued', 'running')
+            WHERE task_kind IN (?, ?)
+              AND status IN (?, ?)
               AND json_extract_string(scope_json, '$.program_id') = ?
               AND json_extract_string(scope_json, '$.version') = ?
             ORDER BY created_at DESC
             LIMIT 1
             """,
-            [program_id, version],
+            [
+                *DERIVED_DATA_TASK_KINDS,
+                *ACTIVE_TASK_STATUSES,
+                program_id,
+                version,
+            ],
         ).fetchone()
         if row is None:
             return None
@@ -2626,7 +2642,7 @@ class UnifiedStore:
             """
             SELECT *
             FROM upload_tasks
-            WHERE task_kind = 'damage_calculation'
+            WHERE task_kind = ?
               AND status = 'failed'
               AND expires_at >= CURRENT_TIMESTAMP
               AND json_extract_string(scope_json, '$.program_id') = ?
@@ -2634,7 +2650,7 @@ class UnifiedStore:
             ORDER BY created_at DESC
             LIMIT 1
             """,
-            [program_id, version],
+            [TASK_KIND_DAMAGE_CALCULATION, program_id, version],
         ).fetchone()
         if row is None:
             return None

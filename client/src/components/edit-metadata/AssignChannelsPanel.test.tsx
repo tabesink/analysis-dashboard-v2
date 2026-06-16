@@ -31,7 +31,7 @@ vi.mock('@/components/edit-metadata/ChannelMapUploadDialog', () => ({
   ChannelMapUploadDialog: () => <div data-testid="channel-map-upload-dialog" />,
 }));
 
-vi.mock('@/components/upload/CsvPreviewTable', () => ({
+vi.mock('@/features/database/datasets', () => ({
   CsvPreviewTable: () => <div data-testid="csv-preview-table" />,
 }));
 

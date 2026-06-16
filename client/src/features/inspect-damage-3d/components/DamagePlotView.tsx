@@ -17,6 +17,7 @@ import { Damage2DPlotCard } from './Damage2DPlotCard';
 type DamagePlotViewProps = {
   comparison: DamageComparisonState;
   comparisonViewModel: DamageComparisonViewModel;
+  eventNameByEventId?: ReadonlyMap<string, string>;
   onUpdateComparison: (patch: Partial<DamageComparisonState>) => void;
   className?: string;
 };
@@ -24,6 +25,7 @@ type DamagePlotViewProps = {
 export function DamagePlotView({
   comparison,
   comparisonViewModel,
+  eventNameByEventId,
   onUpdateComparison,
   className,
 }: DamagePlotViewProps) {
@@ -51,6 +53,7 @@ export function DamagePlotView({
       targetEventIds: comparison.target.selected_event_ids,
       selectedEventIds: [] as string[],
       eventThreshold,
+      eventNameByEventId,
     };
     const sharedYDomain = computeSharedAbsoluteDamageYDomain(specInputBase);
     const sharedDomainPlotTypes = new Set<DamagePlotType>([
@@ -77,6 +80,7 @@ export function DamagePlotView({
     comparison.target.selected_event_ids,
     comparison.value_mode,
     comparisonViewModel.aggregates,
+    eventNameByEventId,
     eventThreshold,
   ]);
 

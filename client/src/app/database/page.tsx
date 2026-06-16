@@ -18,12 +18,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { useUploadOperation } from '@/hooks/use-upload-operation';
+import { useUploadOperation } from '@/features/database/upload';
 import { damageApi, dashboardApi } from '@/lib/api';
 import { useUploadedDatasets, useScopeDeleteOperation } from '@/hooks';
 import { useEventCatalog } from '@/hooks/use-event-catalog';
 import { ScopeDeleteOperationModal } from '@/features/database-scope-delete/ScopeDeleteOperationModal';
-import { UploadOperationModal } from '@/features/database-upload/UploadOperationModal';
+import { UploadOperationModal } from '@/features/database/upload';
 import { DatabaseChannelReprocessBanners } from '@/features/edit-metadata/DatabaseChannelReprocessBanners';
 import { DatabaseDerivedDataOperationModals } from '@/features/edit-metadata/DatabaseDerivedDataOperationModals';
 import { DamageTableView } from '@/features/inspect-damage/components/DamageTableView';
@@ -46,39 +46,23 @@ import {
   type InspectDamageTablePreferences,
 } from '@/lib/inspect-damage-table-preferences';
 import { resolveInspectDamageViewState } from '@/features/inspect-damage/lib/inspect-damage-view-state';
-import {
-  DatabaseSidePanel,
-  DatabaseEventTree,
-  ColumnResizeHandle,
-} from '@/components/upload';
+import { DatabaseSidePanel } from '@/features/database/upload';
+import { DatabaseEventTree, ColumnResizeHandle } from '@/features/database/datasets';
 import { MetadataEditDialog } from '@/components/edit-metadata';
 import { DEFAULT_FILTER_OPTIONS } from '@/config/filters';
+import {
+  buildUploadMetadataPayload,
+  getMissingRequiredUploadFields,
+  notifyUploadPreflightFeedback,
+  summarizeUploadSelection,
+} from '@/features/database-upload/upload-policy';
 import type { DamageInspectResponse, EventMetadata, FilterOptions } from '@/types/api';
-import type { DatasetInfo, UploadMetadata } from '@/types/upload';
+import type { DatasetInfo } from '@/types/upload';
 import { selectCanWrite, useAuthStore } from '@/stores/auth-store';
 import { isDamageCalculationActive } from '@/stores/damage-calculation-store';
 import { useUIStore } from '@/stores/ui-store';
 
 type FilterState = Record<string, string>;
-
-const REQUIRED_UPLOAD_FIELDS = ['Program ID', 'Load Version', 'Job Number', 'Work Order'];
-
-const channelMapBasename = (file: File): string => {
-  const path = (file.webkitRelativePath || file.name).replace(/\\/g, '/');
-  return (path.split('/').pop() ?? path).toLowerCase();
-};
-
-const isChannelMapFile = (file: File): boolean => {
-  const baseName = channelMapBasename(file);
-  return baseName === 'channel_map.yaml' || baseName === 'channel_map.yml';
-};
-
-const getDataFileExtension = (file: File): '.csv' | '.rsp' | null => {
-  const filename = file.name.toLowerCase();
-  if (filename.endsWith('.csv')) return '.csv';
-  if (filename.endsWith('.rsp')) return '.rsp';
-  return null;
-};
 
 const DYNAMIC_LABEL_OVERRIDES: Record<string, string> = {
   'FGAWR Range (lbs)': 'FGAWR (lbs)',
@@ -452,85 +436,20 @@ export default function DatabasePage() {
   const handleUpload = async () => {
     if (selectedFiles.length === 0) return;
 
-    const programId = filters['Program ID'];
-    const version = filters['Load Version'];
-    const jobNumber = filters['Job Number'];
-    const workOrder = filters['Work Order'];
-    const statusValue = filters['Status'];
+    const metadataResult = buildUploadMetadataPayload(filters, { isAdmin });
+    const uploadSummary = summarizeUploadSelection(selectedFiles);
 
-    // Validate mandatory fields
-    if (!programId) {
-      toast.error('Please enter a Job ID');
-      return;
-    }
-    if (!version) {
-      toast.error('Please enter a Load Version');
-      return;
-    }
-    if (!jobNumber) {
-      toast.error('Please enter a Program ID');
-      return;
-    }
-    if (!workOrder) {
-      toast.error('Please enter a Work Order');
-      return;
-    }
-
-    const channelMapFile = selectedFiles.find(isChannelMapFile);
-
-    const dataFiles = selectedFiles.filter((file) => getDataFileExtension(file) !== null);
-
-    if (dataFiles.length === 0) {
-      toast.error('No CSV or RSP files found');
-      return;
-    }
-
-    const dataExtensions = new Set(dataFiles.map(getDataFileExtension));
-    if (dataExtensions.size > 1) {
-      toast.error('Upload either CSV files or RSP files, not both');
-      return;
-    }
-
-    const ignoredCount = selectedFiles.filter(
-      (file) => getDataFileExtension(file) === null && !isChannelMapFile(file),
-    ).length;
-    if (ignoredCount > 0) {
-      toast.info(`${ignoredCount} unrelated file${ignoredCount === 1 ? '' : 's'} will be ignored`);
-    }
-
-    const metadataPayload: UploadMetadata = {
-      program_id: programId,
-      version,
-      job_number: jobNumber,
-      work_order: workOrder,
-    };
-    const optionalFieldMap = {
-      'Suspension Component': 'suspension_component',
-      'Axle Location': 'axle_location',
-      GVW: 'gvw',
-      FGAWR: 'fgawr',
-      RGAWR: 'rgawr',
-      'Drive Type': 'drive_type',
-      "Mat'l & Const": 'material_construction',
-      Material: 'material_construction',
-      Steering: 'steering_position',
-      'Steering Position': 'steering_position',
-      'Damper Type': 'damper_type',
-      'Vehicle Type': 'vehicle_type',
-    } as const;
-    Object.entries(optionalFieldMap).forEach(([displayName, metadataKey]) => {
-      const value = filters[displayName]?.trim();
-      if (value) {
-        metadataPayload[metadataKey] = value;
-      }
+    const canStartUpload = notifyUploadPreflightFeedback({
+      metadataResult,
+      selectionSummary: uploadSummary,
+      notifier: {
+        error: toast.error,
+        info: toast.info,
+      },
     });
-    if (isAdmin && statusValue?.trim()) {
-      metadataPayload.status = statusValue.trim();
-    }
+    if (!canStartUpload || !metadataResult.ok) return;
 
-    await startUpload(dataFiles, channelMapFile, {
-      ...metadataPayload,
-    });
+    await startUpload(uploadSummary.dataFiles, uploadSummary.channelMapFile, metadataResult.metadata);
   };
 
   const handleFilterChange = (key: string, value: string) => {
@@ -545,7 +464,7 @@ export default function DatabasePage() {
 
   // Count missing required fields for upload validation
   const missingFieldsCount = useMemo(() => {
-    return REQUIRED_UPLOAD_FIELDS.filter((field) => !filters[field]).length;
+    return getMissingRequiredUploadFields(filters).length;
   }, [filters]);
 
   const handleSort = (field: SortField) => {

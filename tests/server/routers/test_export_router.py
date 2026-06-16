@@ -197,6 +197,54 @@ def test_export_database_info_rejects_non_admin_users(
     assert forbidden.status_code == 403
 
 
+@pytest.mark.parametrize("username", ["reader", "writer"])
+def test_database_admin_routes_reject_non_admin_users(
+    auth_client: TestClient,
+    username: str,
+) -> None:
+    if username == "writer":
+        _create_writer(auth_client)
+        response = auth_client.post(
+            "/api/v1/auth/login",
+            json={"username": "writer", "password": "password1234"},
+        )
+    else:
+        response = auth_client.post(
+            "/api/v1/auth/register",
+            json={"username": "reader", "password": "password1234"},
+        )
+    assert response.status_code in {200, 201}, response.text
+
+    assert auth_client.get("/api/v1/export/database/list").status_code == 403
+    assert (
+        auth_client.post("/api/v1/export/database/parquet/export/start").status_code == 403
+    )
+    assert (
+        auth_client.post(
+            "/api/v1/export/database/create-new",
+            json={"name": "restricted"},
+        ).status_code
+        == 403
+    )
+    assert (
+        auth_client.post(
+            "/api/v1/export/database/connect",
+            json={"database_name": "dashboard.db"},
+        ).status_code
+        == 403
+    )
+    assert (
+        auth_client.post(
+            "/api/v1/export/database/delete",
+            json={
+                "database_name": "dashboard-test.db",
+                "confirmation": "DELETE dashboard-test.db",
+            },
+        ).status_code
+        == 403
+    )
+
+
 def test_admin_can_reach_export_route_contract(auth_client: TestClient) -> None:
     _login_admin(auth_client)
 
@@ -272,7 +320,7 @@ def test_connect_database_clears_runtime_query_cache(auth_client: TestClient) ->
     assert cache.get("program_ids:False:False:none") is None
 
 
-def test_writer_can_list_and_connect_database(auth_client: TestClient) -> None:
+def test_non_admin_users_cannot_list_or_connect_database(auth_client: TestClient) -> None:
     _login_admin(auth_client)
     created = auth_client.post(
         "/api/v1/export/database/create-new",
@@ -288,7 +336,6 @@ def test_writer_can_list_and_connect_database(auth_client: TestClient) -> None:
     )
     assert switched_back.status_code == 200, switched_back.text
     _create_writer(auth_client)
-
     login_writer = auth_client.post(
         "/api/v1/auth/login",
         json={"username": "writer", "password": "password1234"},
@@ -296,9 +343,7 @@ def test_writer_can_list_and_connect_database(auth_client: TestClient) -> None:
     assert login_writer.status_code == 200, login_writer.text
 
     listed = auth_client.get("/api/v1/export/database/list")
-    assert listed.status_code == 200, listed.text
-    assert "dashboard.db" in listed.json()["databases"]
-    assert new_db in listed.json()["databases"]
+    assert listed.status_code == 403
 
     connected = auth_client.post(
         "/api/v1/export/database/connect",
@@ -306,12 +351,7 @@ def test_writer_can_list_and_connect_database(auth_client: TestClient) -> None:
             "database_name": new_db,
         },
     )
-    assert connected.status_code == 200, connected.text
-    assert connected.json()["active_database"] == new_db
-
-    me = auth_client.get("/api/v1/auth/me")
-    assert me.status_code == 200, me.text
-    assert me.json()["username"] == "writer"
+    assert connected.status_code == 403
 
 
 def test_admin_can_delete_non_active_database(auth_client: TestClient) -> None:
@@ -399,26 +439,10 @@ def test_admin_can_reach_upload_route_contract(auth_client: TestClient) -> None:
         "/api/v1/export/database/parquet/upload",
         files=_zip_file(),
     )
-    assert uploaded.status_code == 200, uploaded.text
-    assert uploaded.json() == {
-        "upload_id": "staged-upload",
-        "validation": {
-            "valid": True,
-            "event_count": 0,
-            "size_mb": 0.01,
-            "tables": [],
-            "schema_compatibility": {
-                "is_compatible": True,
-                "is_legacy": False,
-                "imported_schema_version": 1,
-                "current_schema_version": 1,
-                "schema_version_match": True,
-                "missing_columns": [],
-                "extra_columns": [],
-            },
-            "warnings": [],
-        },
-    }
+    assert uploaded.status_code == 410, uploaded.text
+    assert "removed" in uploaded.json()["detail"].lower()
+    assert "export" in uploaded.json()["detail"].lower()
+    assert "connect" in uploaded.json()["detail"].lower()
 
 
 def test_task_status_includes_import_progress_fields(auth_client: TestClient) -> None:
@@ -472,14 +496,16 @@ def test_admin_can_reach_import_and_cleanup_route_contract(
     _login_admin(auth_client)
 
     imported = auth_client.post("/api/v1/export/database/parquet/import/staged-upload")
-    assert imported.status_code == 200, imported.text
-    assert imported.json() == {"task_id": "import-staged-upload"}
+    assert imported.status_code == 410, imported.text
+    assert "removed" in imported.json()["detail"].lower()
+    assert "export" in imported.json()["detail"].lower()
+    assert "connect" in imported.json()["detail"].lower()
 
     cancelled_upload = auth_client.delete(
         "/api/v1/export/database/parquet/upload/staged-upload"
     )
-    assert cancelled_upload.status_code == 200, cancelled_upload.text
-    assert cancelled_upload.json() == {"ok": True}
+    assert cancelled_upload.status_code == 410, cancelled_upload.text
+    assert "removed" in cancelled_upload.json()["detail"].lower()
 
     cancelled_task = auth_client.delete(
         "/api/v1/export/database/parquet/task/running-task"

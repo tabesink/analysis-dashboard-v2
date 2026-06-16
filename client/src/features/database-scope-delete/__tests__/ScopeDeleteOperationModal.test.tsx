@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ScopeDeleteOperationModal } from '@/features/database-scope-delete/ScopeDeleteOperationModal';
 import { buildScopeDeletePlan } from '@/features/database-scope-delete/build-scope-delete-plan';
-import { PROGRAM_SCOPE_PREFIX } from '@/components/upload/DatabaseEventTree';
+import { PROGRAM_SCOPE_PREFIX } from '@/features/database/datasets';
 import type { ProgramVersionSummary } from '@/types/upload';
 
 vi.mock('@/components/ui/alert-dialog', () => ({

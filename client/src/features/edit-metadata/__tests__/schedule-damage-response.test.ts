@@ -58,6 +58,20 @@ describe('resolveScheduleDamageResponse', () => {
     });
   });
 
+  it('returns rescaled when schedule damage is updated synchronously', () => {
+    const resolved = resolveScheduleDamageResponse(
+      response({
+        schedule_command_outcome: 'rescaled_scheduled_damage',
+        updated_damage_rows: 12,
+      }),
+    );
+
+    expect(resolved).toEqual({
+      kind: 'rescaled',
+      updatedRows: 12,
+    });
+  });
+
   it('returns none when no damage follow-up is required', () => {
     expect(resolveScheduleDamageResponse(response())).toEqual({ kind: 'none' });
   });

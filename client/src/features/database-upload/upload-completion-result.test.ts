@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildUploadCompletionResult } from '@/features/database-upload/upload-completion-result';
+import {
+  buildUploadCancelledResult,
+  buildUploadCompletionResult,
+  buildUploadFailedResult,
+} from '@/features/database-upload/upload-completion-result';
 import type { UploadResponse } from '@/types/upload';
 
 const baseResponse: UploadResponse = {
@@ -50,6 +54,33 @@ describe('buildUploadCompletionResult', () => {
         '1 event created',
         'Open Edit Metadata and save Assign Channels to start channel reprocess.',
       ],
+    });
+  });
+});
+
+describe('upload terminal summaries', () => {
+  it('builds a terminal failure summary', () => {
+    const result = buildUploadFailedResult({
+      errorMessage: 'Lost contact with the server during upload. Check server logs before retrying.',
+      elapsedSeconds: 45,
+    });
+
+    expect(result).toEqual({
+      success: false,
+      title: 'Import failed',
+      message: 'Lost contact with the server during upload. Check server logs before retrying.',
+      elapsedSeconds: 45,
+    });
+  });
+
+  it('builds a terminal cancelled summary', () => {
+    const result = buildUploadCancelledResult(18);
+
+    expect(result).toEqual({
+      success: false,
+      title: 'Import cancelled',
+      message: 'Import was cancelled before completion.',
+      elapsedSeconds: 18,
     });
   });
 });

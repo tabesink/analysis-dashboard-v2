@@ -1,6 +1,7 @@
 'use client';
 
 import { PlotCardShell } from '@/components/charts/PlotCardShell';
+import { PlotLegendOverlay } from '@/components/charts/PlotLegendOverlay';
 import {
   DAMAGE_PLOT_CHART_REGION_CLASS,
   PLOT_CARD_BASE_CLASS,
@@ -75,6 +76,11 @@ export function CumulativeByChannelPlotCard({
   const ticks = Array.from({ length: tickCount }, (_, index) => (yMax / (tickCount - 1)) * index);
   const barSeries = spec.series.filter((series) => series.values.length > 0);
   const valueModeLabel = spec.yScale.tickFormat === 'percent' ? 'normalized' : 'absolute';
+  const legendItems = spec.legend.map((legendItem) => ({
+    id: legendItem.role,
+    label: legendItem.label,
+    color: legendItem.color,
+  }));
   const padding = computeDamagePlotChartPadding({ categoryLabels: spec.xCategories });
   const labelFontSize = axisLabelFontSize(spec.xCategories.length);
   const plotHeight = plotAreaHeight(padding);
@@ -96,7 +102,7 @@ export function CumulativeByChannelPlotCard({
           preserveAspectRatio="xMidYMid meet"
           className="h-full max-h-full w-full max-w-full"
           role="img"
-          aria-label="Cumulative by channel grouped bar chart"
+          aria-label="Cumulative Damage by Channel grouped bar chart"
         >
           <rect
             x={0}
@@ -190,20 +196,7 @@ export function CumulativeByChannelPlotCard({
           })}
         </svg>
 
-        <div className="pointer-events-none absolute right-1 top-1 max-w-[48%] rounded-md bg-white/85 px-1.5 py-0.5 ring-1 ring-gray-200/70 backdrop-blur-sm">
-          <ul className="flex flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
-            {spec.legend.map((legendItem) => (
-              <li key={legendItem.role} className="flex items-center gap-1 text-[9px] text-gray-700">
-                <span
-                  className="inline-block h-1.5 w-1.5 rounded-full"
-                  style={{ backgroundColor: legendItem.color }}
-                  aria-hidden="true"
-                />
-                <span className="truncate">{legendItem.label}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <PlotLegendOverlay items={legendItems} />
 
         {spec.warnings[0] ? (
           <p className="pointer-events-none absolute left-1 top-1 max-w-[70%] truncate rounded-md bg-amber-100/90 px-1.5 py-0.5 text-[9px] text-amber-800 shadow-sm">

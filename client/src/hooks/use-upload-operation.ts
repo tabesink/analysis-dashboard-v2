@@ -1,9 +1,14 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import type { UploadMetadata, UploadResponse } from '@/types/upload';
 import { useUpload } from '@/hooks/use-upload';
-import { buildUploadCompletionResult } from '@/features/database-upload/upload-completion-result';
+import {
+  buildUploadCancelledResult,
+  buildUploadCompletionResult,
+  buildUploadFailedResult,
+} from '@/features/database-upload/upload-completion-result';
 import type {
   UploadCompletionResult,
   UploadOperationModalProps,
@@ -33,6 +38,7 @@ export function useUploadOperation({
   const [wizardStep, setWizardStep] = useState<UploadWizardStep>('progress');
   const [blocking, setBlocking] = useState(false);
   const [completionResult, setCompletionResult] = useState<UploadCompletionResult | null>(null);
+  const cancelRequestedRef = useRef(false);
 
   const reset = useCallback(() => {
     setWizardStep('progress');
@@ -72,6 +78,8 @@ export function useUploadOperation({
       setWizardStep('progress');
       setBlocking(true);
       setCompletionResult(null);
+      cancelRequestedRef.current = false;
+      toast.info('Import started');
 
       const startedAt = Date.now();
 
@@ -79,21 +87,23 @@ export function useUploadOperation({
         const response = await upload(dataFiles, channelMapFile, metadata);
         const elapsedSeconds = (Date.now() - startedAt) / 1000;
         finishWithSummary(buildUploadCompletionResult({ response, elapsedSeconds }));
+        toast.success('Import complete');
         await onComplete?.(response);
       } catch (error) {
+        const elapsedSeconds = (Date.now() - startedAt) / 1000;
         if (error instanceof DOMException && error.name === 'AbortError') {
+          if (cancelRequestedRef.current) {
+            finishWithSummary(buildUploadCancelledResult(elapsedSeconds));
+            toast.info('Import cancelled');
+            return;
+          }
           reset();
           setOpen(false);
           return;
         }
         const errorMessage = error instanceof Error ? error.message : 'Upload failed';
-        const elapsedSeconds = (Date.now() - startedAt) / 1000;
-        finishWithSummary({
-          success: false,
-          title: 'Import failed',
-          message: errorMessage,
-          elapsedSeconds,
-        });
+        finishWithSummary(buildUploadFailedResult({ errorMessage, elapsedSeconds }));
+        toast.error('Import failed');
         onError?.(errorMessage);
       }
     },
@@ -101,10 +111,9 @@ export function useUploadOperation({
   );
 
   const handleCancelUpload = useCallback(() => {
+    cancelRequestedRef.current = true;
     cancel();
-    reset();
-    setOpen(false);
-  }, [cancel, reset]);
+  }, [cancel]);
 
   const closeSummary = useCallback(() => {
     reset();

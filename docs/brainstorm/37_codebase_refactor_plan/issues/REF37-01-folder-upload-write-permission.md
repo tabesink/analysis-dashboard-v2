@@ -38,14 +38,21 @@ Preserve the existing folder-upload endpoint URL and success response for author
 
 ## Acceptance Criteria
 
-- [ ] A route-level test proves a read-only authenticated user cannot start folder upload.
-- [ ] The test fails before the implementation change.
-- [ ] Folder upload still starts for write/admin users through the existing public route contract.
-- [ ] Validation or task creation does not run for forbidden users.
-- [ ] `CHANGELOG.md` documents the user-facing permission hardening.
-- [ ] `docs/tasks/REF37-01.md` records behavior changed, tests added, and follow-on assumptions.
-- [ ] GitNexus impact analysis is run before editing the route symbol.
-- [ ] Focused tests pass.
+- [x] A route-level test proves a read-only authenticated user cannot start folder upload.
+- [x] The test fails before the implementation change.
+- [x] Folder upload still starts for write/admin users through the existing public route contract.
+- [x] Validation or task creation does not run for forbidden users.
+- [x] `CHANGELOG.md` documents the user-facing permission hardening.
+- [x] `docs/tasks/REF37-01.md` records behavior changed, tests added, and follow-on assumptions.
+- [x] GitNexus impact analysis is run before editing the route symbol.
+- [x] Focused tests pass.
+
+## Completion Note
+
+Completed on 2026-06-16.
+
+- Route guard for `POST /api/v1/upload/folder/start` now uses write/admin authorization.
+- Added focused regression tests for read-only `403` pre-parse behavior and write-user success contract.
 
 ## Blocked By
 

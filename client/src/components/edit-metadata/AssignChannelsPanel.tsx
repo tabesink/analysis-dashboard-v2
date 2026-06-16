@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { ChannelMapUploadDialog } from '@/components/edit-metadata/ChannelMapUploadDialog';
-import { CsvPreviewTable } from '@/components/upload/CsvPreviewTable';
+import { CsvPreviewTable } from '@/features/database/datasets';
 import { getPlotDisplayTitle } from '@/config/constants';
 import {
   CHANNEL_MAP_DATA_ROW_COUNT,

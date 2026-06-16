@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { FileDropZone, SidePanelSection } from '@/components/shared';
+import { summarizeUploadSelection } from '@/features/database-upload/upload-policy';
 import type { FilterOptions } from '@/types/api';
 
 export interface UploadDataSectionProps {
@@ -48,26 +49,10 @@ export function UploadDataSection({
   missingFieldsCount,
 }: UploadDataSectionProps) {
   const uploadSummary = useMemo(() => {
-    const isChannelMap = (file: File) => {
-      const path = (file.webkitRelativePath || file.name).replace(/\\/g, '/');
-      const baseName = (path.split('/').pop() ?? path).toLowerCase();
-      return baseName === 'channel_map.yaml' || baseName === 'channel_map.yml';
-    };
-
-    const csvCount = selectedFiles.filter((file) => file.name.toLowerCase().endsWith('.csv')).length;
-    const rspCount = selectedFiles.filter((file) => file.name.toLowerCase().endsWith('.rsp')).length;
-    const channelMapCount = selectedFiles.filter(isChannelMap).length;
-    const hasChannelMap = channelMapCount > 0;
-    const dataCount = csvCount + rspCount;
-    const ignoredCount = selectedFiles.length - dataCount - channelMapCount;
-
+    const summary = summarizeUploadSelection(selectedFiles);
     return {
-      csvCount,
-      rspCount,
-      hasChannelMap,
-      dataCount,
-      ignoredCount: Math.max(0, ignoredCount),
-      hasMixedDataTypes: csvCount > 0 && rspCount > 0,
+      ...summary,
+      hasChannelMap: summary.channelMapCount > 0,
     };
   }, [selectedFiles]);
 

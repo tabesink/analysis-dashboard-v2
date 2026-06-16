@@ -39,22 +39,26 @@ Make folder-upload progress reporting stable, task-kind aware, and failure-aware
 
 ## Acceptance Criteria
 
-- [ ] Progress tests prove folder-upload phases are displayed in the backend order defined by `IMPLEMENTATION_MAP.md`.
-- [ ] Progress tests prove downstream task progress is not rendered as folder-upload progress.
-- [ ] Polling tests cover transient backend unavailability and a user-readable recovery/failure state.
-- [ ] Terminal summary tests cover completed, failed, and cancelled states where cancellation is supported.
-- [ ] The operation dialog remains the source of detailed upload status, progress, retry/cancel affordances, and terminal summaries.
-- [ ] Toast notifications are used only for lightweight high-level outcomes and do not replace status content in the dialog.
-- [ ] Cancellation either uses an existing route/hook contract or documents the new minimal public contract before implementation.
-- [ ] UI progress components render task state and do not infer backend workflow rules.
-- [ ] `IMPLEMENTATION_MAP.md` is updated if progress state names change.
-- [ ] `docs/tasks/REF37-04.md` records behavior changed, interfaces changed, and tests added.
-- [ ] GitNexus impact analysis is run before editing hook/API/route symbols.
-- [ ] Focused tests pass.
+- [x] Progress tests prove folder-upload phases are displayed in the backend order defined by `IMPLEMENTATION_MAP.md`.
+- [x] Progress tests prove downstream task progress is not rendered as folder-upload progress.
+- [x] Polling tests cover transient backend unavailability and a user-readable recovery/failure state.
+- [x] Terminal summary tests cover completed, failed, and cancelled states where cancellation is supported.
+- [x] The operation dialog remains the source of detailed upload status, progress, retry/cancel affordances, and terminal summaries.
+- [x] Toast notifications are used only for lightweight high-level outcomes and do not replace status content in the dialog.
+- [x] Cancellation either uses an existing route/hook contract or documents the new minimal public contract before implementation.
+- [x] UI progress components render task state and do not infer backend workflow rules.
+- [x] `IMPLEMENTATION_MAP.md` is updated if progress state names change.
+- [x] `docs/tasks/REF37-04.md` records behavior changed, interfaces changed, and tests added.
+- [x] GitNexus impact analysis is run before editing hook/API/route symbols.
+- [x] Focused tests pass.
 
 ## Blocked By
 
 - `REF37-03`
+
+## Completion Note (2026-06-16)
+
+Implemented upload progress normalization and cancellation UX hardening in the existing client upload contract: upload progress now tracks backend folder phases (`upload_received`, `converting`, `validating`, `writing`) monotonically, ignores non-folder task updates, preserves transient connection-loss messaging from polling, and keeps detailed status in the operation dialog while using high-level toasts for start/completion/failure/cancel events. Cancellation uses the existing `useUpload` hook abort contract and now lands in an explicit cancelled terminal summary. Coverage added in `client/src/hooks/use-upload.test.ts`, `client/src/features/database-upload/upload-completion-result.test.ts`, and existing polling coverage in `client/src/lib/api/upload.test.ts`; details are recorded in `docs/tasks/REF37-04.md`.
 
 ## Next Slice Can Assume
 

@@ -37,15 +37,15 @@ Make ownership and edit/delete permission semantics explicit and tested. Contrib
 
 ## Acceptance Criteria
 
-- [ ] Contributor-owner tests prove write users can edit channel-map data for datasets they uploaded.
-- [ ] Contributor-owner tests prove write users can edit schedule data for datasets they uploaded.
-- [ ] Non-owner contributor tests prove write users cannot edit channel-map or schedule data uploaded by someone else.
-- [ ] Delete tests prove edit policy extraction does not loosen event/scope delete behavior.
-- [ ] Admin tests prove admins can CRUD uploaded data according to existing admin behavior.
-- [ ] Policy/helper names distinguish contributor edit from exclusive-owner-or-admin delete.
-- [ ] `IMPLEMENTATION_MAP.md` is updated if policy names or route contracts change.
-- [ ] `docs/tasks/REF37-06.md` records behavior changed, interfaces changed, and tests added.
-- [ ] GitNexus impact analysis is run before editing permission or route symbols.
+- [x] Contributor-owner tests prove write users can edit channel-map data for datasets they uploaded.
+- [x] Contributor-owner tests prove write users can edit schedule data for datasets they uploaded.
+- [x] Non-owner contributor tests prove write users cannot edit channel-map or schedule data uploaded by someone else.
+- [x] Delete tests prove edit policy extraction does not loosen event/scope delete behavior.
+- [x] Admin tests prove admins can CRUD uploaded data according to existing admin behavior.
+- [x] Policy/helper names distinguish contributor edit from exclusive-owner-or-admin delete.
+- [x] `IMPLEMENTATION_MAP.md` is updated if policy names or route contracts change.
+- [x] `docs/tasks/REF37-06.md` records behavior changed, interfaces changed, and tests added.
+- [x] GitNexus impact analysis is run before editing permission or route symbols.
 - [ ] Focused tests pass.
 
 ## Blocked By
@@ -55,3 +55,7 @@ Make ownership and edit/delete permission semantics explicit and tested. Contrib
 ## Next Slice Can Assume
 
 Dataset ownership permissions are named and tested before database administration behavior is changed.
+
+## Completion Note (2026-06-16)
+
+Implemented with named uploaded-data policy helpers, dashboard/upload route wiring, and focused role-behavior coverage; see `docs/tasks/REF37-06.md`.

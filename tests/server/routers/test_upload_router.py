@@ -42,6 +42,22 @@ def _login_writer(client: TestClient, username: str) -> dict[str, Any]:
     return login(client, username, WRITER_PASSWORD)
 
 
+def _register_reader(client: TestClient, username: str) -> dict[str, Any]:
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"username": username, "password": WRITER_PASSWORD},
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def _count_upload_tasks(client: TestClient) -> int:
+    row = client.app.state.db.read_connection.execute(
+        "SELECT COUNT(*) AS count FROM upload_tasks"
+    ).fetchone()
+    return int(row[0]) if row is not None else 0
+
+
 def _insert_event(
     client: TestClient,
     *,
@@ -245,6 +261,7 @@ def test_get_upload_folder_task_returns_completed_result_for_creator(
         task_id=task_id,
         created_by_user_id=owner["id"],
         total_events=2,
+        scope={"program_id": "P-OBS", "version": "V1"},
     )
     auth_client.app.state.db.update_upload_task(
         task_id,
@@ -277,9 +294,50 @@ def test_get_upload_folder_task_returns_completed_result_for_creator(
     payload = response.json()
     assert payload["task_id"] == task_id
     assert payload["status"] == "completed"
+    assert payload["terminal_state"] == "completed"
+    assert payload["task_owner_user_id"] == owner["id"]
+    assert payload["task_kind"] == "folder_upload"
+    assert payload["scope"] == {"program_id": "P-OBS", "version": "V1"}
     assert payload["progress_message"] == "Processed 2/2: event_b"
+    assert payload["result_summary"] == "Succeeded: 1 events across 1 files"
     assert payload["result"]["success"] is True
     assert payload["result"]["event_ids"] == ["event_a"]
+
+
+def test_get_upload_folder_task_includes_error_details_for_failed_task(
+    auth_client: TestClient,
+) -> None:
+    owner = _create_writer(auth_client, "upload_task_error_owner")
+    task_id = "upload-task-failed-001"
+    auth_client.app.state.db.create_upload_task(
+        task_id=task_id,
+        created_by_user_id=owner["id"],
+        total_events=1,
+        scope={"program_id": "P-OBS-ERR", "version": "V1"},
+    )
+    auth_client.app.state.db.update_upload_task(
+        task_id,
+        status="failed",
+        phase="failed",
+        error='{"code":"upload_validation_failed","reason":"Bad source row"}',
+    )
+
+    _login_writer(auth_client, "upload_task_error_owner")
+    response = auth_client.get(f"/api/v1/upload/folder/task/{task_id}")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["status"] == "failed"
+    assert payload["terminal_state"] == "failed"
+    assert payload["task_owner_user_id"] == owner["id"]
+    assert payload["task_kind"] == "folder_upload"
+    assert payload["scope"] == {"program_id": "P-OBS-ERR", "version": "V1"}
+    assert payload["error"] == '{"code":"upload_validation_failed","reason":"Bad source row"}'
+    assert payload["error_details"] == {
+        "code": "upload_validation_failed",
+        "reason": "Bad source row",
+    }
+    assert payload["result_summary"] is None
 
 
 def test_get_upload_folder_task_is_creator_scoped(
@@ -299,3 +357,69 @@ def test_get_upload_folder_task_is_creator_scoped(
 
     assert response.status_code == 404
     assert other["id"] != owner["id"]
+
+
+def test_folder_upload_start_forbids_read_only_user_before_parsing_or_task_creation(
+    auth_client: TestClient,
+    monkeypatch: Any,
+) -> None:
+    _register_reader(auth_client, "folder_read_only")
+    login(auth_client, "folder_read_only", WRITER_PASSWORD)
+
+    parse_called = False
+
+    async def _parse_upload_payload_should_not_run(**_: Any) -> Any:
+        nonlocal parse_called
+        parse_called = True
+        raise AssertionError("_parse_upload_payload should not run for read-only users")
+
+    from server.routers import upload as upload_router_module
+
+    monkeypatch.setattr(
+        upload_router_module,
+        "_parse_upload_payload",
+        _parse_upload_payload_should_not_run,
+    )
+
+    before_tasks = _count_upload_tasks(auth_client)
+    response = auth_client.post(
+        "/api/v1/upload/folder/start",
+        data={
+            "program_id": "P-READ-ONLY",
+            "version": "V1",
+            "job_number": "JOB-1",
+            "work_order": "WO-1",
+        },
+        files=[
+            ("files", ("event.csv", b"time,accel\n0,1\n", "text/csv")),
+        ],
+    )
+
+    assert response.status_code == 403
+    assert parse_called is False
+    assert _count_upload_tasks(auth_client) == before_tasks
+
+
+def test_folder_upload_start_allows_write_user_with_existing_response_shape(
+    auth_client: TestClient,
+) -> None:
+    _create_writer(auth_client, "folder_writer")
+    _login_writer(auth_client, "folder_writer")
+
+    response = auth_client.post(
+        "/api/v1/upload/folder/start",
+        data={
+            "program_id": "P-WRITER",
+            "version": "V1",
+            "job_number": "JOB-2",
+            "work_order": "WO-2",
+        },
+        files=[
+            ("files", ("event.csv", b"time,accel\n0,1\n", "text/csv")),
+        ],
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert isinstance(payload.get("task_id"), str)
+    assert payload["task_id"]

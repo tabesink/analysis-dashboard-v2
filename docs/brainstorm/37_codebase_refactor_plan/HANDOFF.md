@@ -14,18 +14,42 @@ Implement the upload, derived-data, and database-management refactor in small TD
 
 ## Issue Order
 
-1. `REF37-01-folder-upload-write-permission.md`
-2. `REF37-02-server-upload-policy-contract.md`
-3. `REF37-03-client-upload-policy-and-metadata.md`
-4. `REF37-04-folder-upload-progress-and-cancellation.md`
-5. `REF37-05-derived-lane-command-query-boundaries.md`
-6. `REF37-06-contributor-edit-policy.md`
-7. `REF37-07-remove-database-import.md`
-8. `REF37-08-database-export-and-connection-lane.md`
-9. `REF37-09-task-kind-reconciliation.md`
-10. `REF37-10-server-orchestration-cleanup.md`
-11. `REF37-11-client-module-migration.md`
-12. `REF37-12-golden-path-and-observability.md`
+1. `REF37-01-folder-upload-write-permission.md` (DONE 2026-06-16)
+2. `REF37-02-server-upload-policy-contract.md` (DONE 2026-06-16)
+3. `REF37-03-client-upload-policy-and-metadata.md` (DONE 2026-06-16)
+4. `REF37-04-folder-upload-progress-and-cancellation.md` (DONE 2026-06-16)
+5. `REF37-05-derived-lane-command-query-boundaries.md` (DONE 2026-06-16)
+6. `REF37-06-contributor-edit-policy.md` (DONE 2026-06-16)
+7. `REF37-07-remove-database-import.md` (DONE 2026-06-16)
+8. `REF37-08-database-export-and-connection-lane.md` (DONE 2026-06-16)
+9. `REF37-09-task-kind-reconciliation.md` (DONE 2026-06-16)
+10. `REF37-10-server-orchestration-cleanup.md` (DONE 2026-06-16)
+11. `REF37-11-client-module-migration.md` (DONE 2026-06-16)
+12. `REF37-12-golden-path-and-observability.md` (DONE 2026-06-16)
+
+## Current Baton
+
+- Phase 37 issue chain is complete through `REF37-12`.
+- `REF37-08` completed database-administration lane clarification:
+  - list/connect/create/delete/export routes are now consistently admin-only.
+  - admin settings copy explicitly frames whole-database administration as separate from folder upload.
+  - export keeps modal-owned long-running status and now adds lightweight toasts for start/cancel/failure/completion.
+- `REF37-09` completed task-kind/reconciliation hardening:
+  - shared task-kind constants now define active folder/derived/database-export task kinds and removed `database_import`.
+  - startup backfills now terminalize stale active upload/derived tasks (`queued`/`running` -> `failed/failed`) with restart-safe error semantics.
+  - one-active-derived-task-per-program/version behavior remains enforced and stale restarted rows no longer block new work.
+- `REF37-10` completed thin dashboard route orchestration extraction:
+  - added `server/services/dashboard_orchestration.py` for contributor-edit permission checks, channel-map upload/save orchestration, and schedule damage-extension mapping.
+  - dashboard channel-map/schedule routes now focus on auth/input/error mapping and delegate orchestration logic to service helpers.
+  - route paths and response contracts are unchanged; existing route tests remain the coverage anchor.
+- `REF37-11` completed client lane import migration:
+  - added lane-oriented client entry points for upload, datasets, and database portability (`client/src/features/database/*`).
+  - migrated active `/database`, settings, edit-metadata, inspect-damage-table, and scope-delete imports away from generic `@/components/upload/*` paths.
+  - removed deprecated `UploadSidePanel` and `UploadContent` wrappers after confirming no active imports remained.
+- `REF37-12` completed final golden-path/observability wrap-up:
+  - upload task polling/SSE payload now exposes minimal structured observability (`task_owner_user_id`, `task_kind`, `scope`, `terminal_state`, `result_summary`, `error_details`) without breaking existing fields.
+  - upload-router test coverage now verifies completed and failed task observability payload semantics.
+  - event-level lane behavior and separate database-export lane verification remain covered by existing focused route tests; follow-on work is reliability/UX hardening rather than core Phase 37 boundary refactor.
 
 ## Resolved Product Decisions
 

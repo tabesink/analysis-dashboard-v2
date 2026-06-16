@@ -54,6 +54,16 @@ describe('resolveScheduleDamageResponse', () => {
     });
   });
 
+  it('resolves rescaled outcome from explicit command fields', () => {
+    const resolved = resolveScheduleDamageResponse({
+      ...makeBaseResponse(),
+      schedule_command_outcome: 'rescaled_scheduled_damage',
+      updated_damage_rows: 24,
+    });
+
+    expect(resolved).toEqual({ kind: 'rescaled', updatedRows: 24 });
+  });
+
   it('keeps legacy fallback behavior when command outcome is absent', () => {
     const resolved = resolveScheduleDamageResponse({
       ...makeBaseResponse(),

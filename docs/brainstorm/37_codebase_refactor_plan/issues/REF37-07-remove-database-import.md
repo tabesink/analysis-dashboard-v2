@@ -40,17 +40,17 @@ Remove database import from the active product surface because admins can export
 
 ## Acceptance Criteria
 
-- [ ] A behavior test proves database import cannot be started through the public API.
-- [ ] A client test proves import controls are no longer offered in the active database operation UI.
-- [ ] Export remains available to admins.
-- [ ] Database create/connect/delete paths remain available only to admins.
-- [ ] Import-only code is removed when no active imports reference it, or explicitly marked deprecated if a compatibility shim is required.
-- [ ] User-facing copy points admins toward database export plus database connect/create workflow.
-- [ ] `CHANGELOG.md` records database import removal.
-- [ ] `IMPLEMENTATION_MAP.md` is updated if any route compatibility decision changes.
-- [ ] `docs/tasks/REF37-07.md` records behavior changed, interfaces changed, and tests added.
-- [ ] GitNexus impact analysis is run before editing export/import route, service, or client symbols.
-- [ ] Focused tests pass.
+- [x] A behavior test proves database import cannot be started through the public API.
+- [x] A client test proves import controls are no longer offered in the active database operation UI.
+- [x] Export remains available to admins.
+- [x] Database create/connect/delete paths remain available only to admins.
+- [x] Import-only code is removed when no active imports reference it, or explicitly marked deprecated if a compatibility shim is required.
+- [x] User-facing copy points admins toward database export plus database connect/create workflow.
+- [x] `CHANGELOG.md` records database import removal.
+- [x] `IMPLEMENTATION_MAP.md` is updated if any route compatibility decision changes.
+- [x] `docs/tasks/REF37-07.md` records behavior changed, interfaces changed, and tests added.
+- [x] GitNexus impact analysis is run before editing export/import route, service, or client symbols.
+- [x] Focused tests pass.
 
 ## Blocked By
 
@@ -59,3 +59,7 @@ Remove database import from the active product surface because admins can export
 ## Next Slice Can Assume
 
 Database import is no longer an active workflow, and database administration work can focus on export plus create/connect/delete.
+
+## Completion Note (2026-06-16)
+
+Completed. See `docs/tasks/REF37-07.md` for behavior/interface/test details.

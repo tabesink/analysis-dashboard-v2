@@ -25,7 +25,6 @@ from server.services.channel_reprocess_progress import (
     generating_cross_plot_message,
     validating_artifact_message,
 )
-from server.services.derived_data_task import TASK_KIND_CHANNEL_REPROCESS
 from server.services.derived_artifact_storage import DerivedArtifactStorageService
 from server.services.derived_data_lineage import DerivedDataLineageService
 from server.services.event_header_provider import EventHeaderProvider
@@ -48,6 +47,7 @@ from server.services.etl import (
     ValidationSeverity,
 )
 from server.storage.database import UnifiedStore
+from server.upload.task_kinds import TASK_KIND_CHANNEL_REPROCESS
 from server.utils.cache import CacheKeys, SimpleCache
 from server.utils.weight_ranges import apply_derived_weight_ranges
 

@@ -11,6 +11,7 @@ from server.models.damage import (
     DamageInspectRow,
     DamageInspectScopeState,
 )
+from server.upload.task_kinds import TASK_KIND_DAMAGE_CALCULATION
 
 
 def build_damage_inspect_response(
@@ -121,7 +122,7 @@ def _build_scope_state(
     active_damage_task_id = (
         str(active_task["task_id"])
         if active_task is not None
-        and str(active_task.get("task_kind")) == "damage_calculation"
+        and str(active_task.get("task_kind")) == TASK_KIND_DAMAGE_CALCULATION
         else None
     )
 

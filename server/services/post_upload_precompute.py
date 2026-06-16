@@ -7,6 +7,10 @@ from typing import Any, Literal
 
 from server.services.schedule_damage_prerequisites import check_damage_prerequisites
 from server.services.scope_damage_repair import assess_scope_damage_repair_state
+from server.upload.task_kinds import (
+    DERIVED_DATA_TASK_KINDS,
+    TASK_KIND_DAMAGE_CALCULATION,
+)
 
 PostUploadPrecomputeAction = Literal[
     "no_op",
@@ -59,7 +63,7 @@ def decide_after_channel_reprocess_completion(
         user_id=user_id,
         active_schedule=active_schedule,
         preview=preview,
-        reuse_task_kinds=frozenset({"damage_calculation"}),
+        reuse_task_kinds=frozenset({TASK_KIND_DAMAGE_CALCULATION}),
     )
     if start.get("reused_existing_task"):
         return {
@@ -125,18 +129,22 @@ def decide_after_schedule_save(
                 "action": "rescale_scheduled_damage",
                 "updated_rows": result["updated_rows"],
             }
-
-    db.clear_event_channel_damage_for_program_version(
+    if not _should_preserve_stale_damage_during_recalculation(
+        db,
         program_id=program_id,
         version=version,
-    )
+    ):
+        db.clear_event_channel_damage_for_program_version(
+            program_id=program_id,
+            version=version,
+        )
     start = damage_service._start_damage_calculation_task(
         program_id=program_id,
         version=version,
         user_id=user_id,
         active_schedule=active_schedule,
         preview=preview,
-        reuse_task_kinds=frozenset({"channel_reprocess", "damage_calculation"}),
+        reuse_task_kinds=DERIVED_DATA_TASK_KINDS,
     )
     if start.get("reused_existing_task"):
         return {
@@ -198,7 +206,7 @@ def decide_after_inspect_damage_access(
         user_id=user_id,
         active_schedule=active_schedule,
         preview=preview,
-        reuse_task_kinds=frozenset({"damage_calculation"}),
+        reuse_task_kinds=frozenset({TASK_KIND_DAMAGE_CALCULATION}),
     )
     if start.get("reused_existing_task"):
         return {
@@ -222,7 +230,7 @@ def inspect_precompute_decision_to_response(decision: dict[str, Any]) -> dict[st
     action = decision.get("action")
     if action in {"start_damage_calculation", "reuse_active_task"}:
         extension["damage_task_id"] = decision.get("damage_task_id") or decision.get("task_id")
-        extension["task_kind"] = decision.get("task_kind") or "damage_calculation"
+        extension["task_kind"] = decision.get("task_kind") or TASK_KIND_DAMAGE_CALCULATION
         if action == "reuse_active_task":
             extension["reused_existing_task"] = True
         else:
@@ -244,6 +252,9 @@ def schedule_precompute_decision_to_extension(decision: dict[str, Any]) -> dict[
         extension["schedule_command_outcome"] = "reused_active_task"
         extension["damage_task_id"] = decision.get("damage_task_id") or decision.get("task_id")
         extension["damage_task_status"] = "calculating"
+    elif action == "rescale_scheduled_damage":
+        extension["schedule_command_outcome"] = "rescaled_scheduled_damage"
+        extension["updated_damage_rows"] = decision.get("updated_rows")
     elif action == "blocked":
         extension["schedule_command_outcome"] = "validation_blocked"
         extension["damage_prerequisite_report"] = decision["damage_prerequisite_report"]
@@ -252,9 +263,29 @@ def schedule_precompute_decision_to_extension(decision: dict[str, Any]) -> dict[
     return extension
 
 
+def _should_preserve_stale_damage_during_recalculation(
+    db: Any,
+    *,
+    program_id: str,
+    version: str,
+) -> bool:
+    """Keep channel-reprocess-stale rows visible while async repair runs."""
+    rows = db.list_event_channel_damage_for_program_version(program_id, version)
+    return any(
+        str(row.get("status") or "") == "stale"
+        and str(row.get("stale_reason") or "") == "channel_reprocess_required"
+        for row in rows
+    )
+
+
 def channel_reprocess_precompute_to_result(decision: dict[str, Any]) -> dict[str, Any]:
     """Convert a channel-reprocess follow-up decision into task result fields."""
-    follow_up = schedule_precompute_decision_to_extension(decision)
+    action = decision.get("action")
+    follow_up: dict[str, Any] = {}
+    if action in {"start_damage_calculation", "reuse_active_task"}:
+        follow_up["damage_task_id"] = decision.get("damage_task_id") or decision.get("task_id")
+    elif action == "blocked":
+        follow_up["damage_prerequisite_report"] = decision["damage_prerequisite_report"]
     if not follow_up:
         return {}
     return {"precompute_follow_up": follow_up}

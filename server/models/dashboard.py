@@ -365,6 +365,7 @@ class DurabilityScheduleAttachResponse(BaseModel):
         Literal[
             "calculation_started",
             "reused_active_task",
+            "rescaled_scheduled_damage",
             "validation_blocked",
             "failed_to_start",
         ]
@@ -372,6 +373,7 @@ class DurabilityScheduleAttachResponse(BaseModel):
     ) = None
     damage_task_id: str | None = None
     damage_task_status: Literal["validating", "calculating", "completed", "failed"] | None = None
+    updated_damage_rows: int | None = None
     damage_prerequisite_report: DamageFailureReport | None = None
 
 
@@ -389,6 +391,7 @@ class DurabilityScheduleContextResponse(BaseModel):
         Literal[
             "calculation_started",
             "reused_active_task",
+            "rescaled_scheduled_damage",
             "validation_blocked",
             "failed_to_start",
         ]
@@ -396,6 +399,7 @@ class DurabilityScheduleContextResponse(BaseModel):
     ) = None
     damage_task_id: str | None = None
     damage_task_status: Literal["validating", "calculating", "completed", "failed"] | None = None
+    updated_damage_rows: int | None = None
     damage_prerequisite_report: DamageFailureReport | None = None
 
 

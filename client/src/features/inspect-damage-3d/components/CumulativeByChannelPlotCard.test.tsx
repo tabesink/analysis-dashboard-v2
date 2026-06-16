@@ -7,8 +7,8 @@ function buildSpec(overrides?: Partial<Damage2DPlotSpec>): Damage2DPlotSpec {
   return {
     plotType: 'cumulative_by_channel',
     chartKind: 'grouped-bar',
-    title: 'Cumulative by channel',
-    subtitle: 'Absolute mode · Linear scale · 2 channels',
+    title: 'Cumulative Damage by Channel',
+    subtitle: '',
     xCategories: ['BJ X Force', 'BJ Y Force'],
     yScale: {
       mode: 'linear',
@@ -43,14 +43,18 @@ describe('CumulativeByChannelPlotCard', () => {
   it('renders grouped bars, categories, and legend labels for reference and target', () => {
     const markup = renderToStaticMarkup(<CumulativeByChannelPlotCard spec={buildSpec()} />);
 
-    expect(markup).toContain('Cumulative by channel');
-    expect(markup).toContain('Absolute mode · Linear scale · 2 channels');
+    expect(markup).toContain('Cumulative Damage by Channel');
+    expect(markup).not.toContain('Absolute mode · Linear scale · 2 channels');
     expect(markup).toContain('Reference');
     expect(markup).toContain('Target');
     expect(markup).toContain('BJ X Force');
     expect(markup).toContain('BJ Y Force');
     expect(markup).toContain('data-bar-id="reference-0"');
     expect(markup).toContain('data-bar-id="target-1"');
+    expect(markup).toContain('data-plot-legend-overlay="true"');
+    expect(markup).toContain('text-xs text-gray-700');
+    expect(markup).not.toContain('bg-white/85');
+    expect(markup).not.toContain('ring-1');
   });
 
   it('includes hover tooltip text and accessible labels for bars', () => {

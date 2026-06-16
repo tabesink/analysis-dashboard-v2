@@ -5,12 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from server.models.derived_data_task import DerivedTaskStatusEvent
-
-DERIVED_DATA_TASK_KINDS = frozenset({"channel_reprocess", "damage_calculation"})
-ACTIVE_DERIVED_DATA_STATUSES = frozenset({"queued", "running"})
-TASK_KIND_FOLDER_UPLOAD = "folder_upload"
-TASK_KIND_CHANNEL_REPROCESS = "channel_reprocess"
-TASK_KIND_DAMAGE_CALCULATION = "damage_calculation"
+from server.upload.task_kinds import (
+    ACTIVE_TASK_STATUSES as ACTIVE_DERIVED_DATA_STATUSES,
+    DERIVED_DATA_TASK_KINDS,
+    TASK_KIND_CHANNEL_REPROCESS,
+    TASK_KIND_DAMAGE_CALCULATION,
+    TASK_KIND_FOLDER_UPLOAD,
+)
 
 
 def build_reuse_active_derived_data_task_response(

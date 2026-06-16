@@ -167,6 +167,100 @@ def test_damage_inspect_does_not_compute_when_persisted_rows_missing(
     assert body["rows"][0]["damages"] == {}
 
 
+def test_damage_inspect_is_query_only_until_explicit_backfill_command(
+    auth_client: TestClient,
+) -> None:
+    register = auth_client.post(
+        "/api/v1/auth/register",
+        json={"username": "damage_boundary_user", "password": "damagepassword123"},
+    )
+    assert register.status_code == 201, register.text
+    owner_id = register.json()["id"]
+    db = auth_client.app.state.db
+    auth_client.app.state.identity_db.update_user_role_and_write(owner_id, can_write=True)
+    login(auth_client, "damage_boundary_user", "damagepassword123")
+
+    db.insert_event(
+        event_id="event-damage-boundary",
+        program_id="P-DMG-BOUNDARY",
+        version="V1",
+        uploaded_by_user_id=owner_id,
+        status="Approved",
+        source_file="pattern_a_event.csv",
+    )
+    db.upsert_event_derived_data(
+        event_id="event-damage-boundary",
+        ingestion_run_id=1,
+        derived_artifact_id=1,
+        channel_map_snapshot_id=1,
+        measurements_status="current",
+        lttb_status="current",
+        measurements_data_kind="raw",
+        lttb_data_kind="lttb",
+    )
+    schedule_id = db.upsert_durability_schedule_artifact(
+        program_id="P-DMG-BOUNDARY",
+        version="V1",
+        source_filename="boundary.sch",
+        artifact_uri="schedules/boundary.sch",
+        schedule_sha256="sha-boundary",
+        parse_preview_json=json.dumps(
+            {
+                "multiplier": 1.0,
+                "event_rows": [
+                    {
+                        "event_id": "event-damage-boundary",
+                        "pattern": "pattern_a",
+                        "repeats": 1,
+                        "weight": 1.0,
+                        "rsp_event_name": "Event A",
+                    }
+                ],
+            }
+        ),
+        owner_user_id=owner_id,
+    )
+    db.set_active_durability_schedule("P-DMG-BOUNDARY", "V1", schedule_id)
+
+    before_tasks = db.read_connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM upload_tasks
+        WHERE task_kind = 'damage_calculation'
+          AND json_extract_string(scope_json, '$.program_id') = 'P-DMG-BOUNDARY'
+          AND json_extract_string(scope_json, '$.version') = 'V1'
+        """
+    ).fetchone()
+    assert int(before_tasks[0]) == 0
+
+    inspect_response = auth_client.post(
+        "/api/v1/damage/inspect",
+        json={"event_ids": ["event-damage-boundary"]},
+    )
+    assert inspect_response.status_code == 200, inspect_response.text
+    assert inspect_response.json()["rows"][0]["damages"] == {}
+
+    after_inspect_tasks = db.read_connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM upload_tasks
+        WHERE task_kind = 'damage_calculation'
+          AND json_extract_string(scope_json, '$.program_id') = 'P-DMG-BOUNDARY'
+          AND json_extract_string(scope_json, '$.version') = 'V1'
+        """
+    ).fetchone()
+    assert int(after_inspect_tasks[0]) == 0
+
+    backfill_response = auth_client.post(
+        "/api/v1/damage/backfill",
+        json={"program_id": "P-DMG-BOUNDARY", "version": "V1"},
+    )
+    assert backfill_response.status_code == 200, backfill_response.text
+    backfill_body = backfill_response.json()
+    assert backfill_body["task_kind"] == "damage_calculation"
+    assert backfill_body["damage_task_id"]
+
+
 def test_damage_inspect_reports_stale_values(auth_client: TestClient) -> None:
     register = auth_client.post(
         "/api/v1/auth/register",

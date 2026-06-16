@@ -259,7 +259,7 @@ describe('DamagePlotView', () => {
   it('renders the cumulative-by-channel 2D card with grouped bar content', () => {
     const markup = renderPlotView();
 
-    expect(markup).toContain('Cumulative by channel');
+    expect(markup).toContain('Cumulative Damage by Channel');
     expect(markup).toContain('data-bar-id="reference-0"');
     expect(markup).toContain('data-bar-id="target-0"');
   });
@@ -267,15 +267,15 @@ describe('DamagePlotView', () => {
   it('renders the target-delta card with diverging content instead of placeholder copy', () => {
     const markup = renderPlotView();
 
-    expect(markup).toContain('Target Δ vs Reference by channel');
+    expect(markup).toContain('Target Δ vs Reference Damage by Channel');
     expect(markup).toContain('data-delta-zero-baseline="true"');
   });
 
   it('renders reference and target absolute-by-event cards', () => {
     const markup = renderPlotView();
 
-    expect(markup).toContain('Reference absolute damage by event');
-    expect(markup).toContain('Target absolute damage by event');
+    expect(markup).toContain('Damage by Event (Reference)');
+    expect(markup).toContain('Damage by Event (Target)');
     expect(markup).toContain('data-stacked-event-plot="true"');
     expect(markup).toContain('data-stacked-bar-id="reference_event-0-0"');
     expect(markup).toContain('data-stacked-bar-id="target_event-0-0"');

@@ -15,6 +15,15 @@ import type {
 } from '@/types/upload';
 import { useUIStore } from '@/stores/ui-store';
 
+const FOLDER_UPLOAD_TASK_KIND = 'folder_upload';
+const PHASE_ORDER: UploadProgressPhase[] = ['upload_received', 'converting', 'validating', 'writing'];
+
+interface UploadProgressState {
+  progress: number;
+  progressPhase: UploadProgressPhase;
+  message: string;
+}
+
 interface UseUploadOptions {
   /** Callback when upload completes successfully */
   onComplete?: (response: UploadResponse) => void;
@@ -41,46 +50,98 @@ interface UseUploadReturn {
   progressPhase: UploadProgressPhase;
 }
 
-function applyUploadTaskProgress(
+const phaseRank = (phase: UploadProgressPhase): number => PHASE_ORDER.indexOf(phase);
+
+function toKnownProgressPhase(phase: string): UploadProgressPhase | null {
+  if (phase === 'upload_received') return 'upload_received';
+  if (phase === 'converting') return 'converting';
+  if (phase === 'validating') return 'validating';
+  if (phase === 'writing') return 'writing';
+  return null;
+}
+
+function estimatedProgress(phase: UploadProgressPhase, ratio: number): number {
+  if (phase === 'upload_received') return 5;
+  if (phase === 'converting') return Math.round(10 + ratio * 25);
+  if (phase === 'validating') return Math.round(35 + ratio * 30);
+  return Math.round(65 + ratio * 34);
+}
+
+function defaultProgressMessage(
+  phase: UploadProgressPhase,
+  completedEvents: number,
+  totalEvents: number,
+  currentEvent: string | undefined,
+): string {
+  if (phase === 'upload_received') {
+    return 'Upload received by server...';
+  }
+  if (phase === 'converting') {
+    return 'Converting source files...';
+  }
+  if (phase === 'validating') {
+    return 'Validating files...';
+  }
+  if (currentEvent) {
+    return `Processed ${completedEvents}/${totalEvents}: ${currentEvent}`;
+  }
+  return `Processing events: ${completedEvents}/${totalEvents}`;
+}
+
+export function applyUploadTaskProgress(
   data: UploadTaskEvent,
-  setProgress: (value: number) => void,
-  setMessage: (value: string) => void,
-  setProgressPhase: (value: UploadProgressPhase) => void,
-): void {
+  previous: UploadProgressState,
+): UploadProgressState {
+  if (data.task_kind && data.task_kind !== FOLDER_UPLOAD_TASK_KIND) {
+    return {
+      ...previous,
+      message: 'Waiting for folder upload status...',
+    };
+  }
+
+  const incomingPhase = toKnownProgressPhase(data.phase);
+  if (!incomingPhase) {
+    return previous;
+  }
+
   const totalEvents = Math.max(1, data.total_events || 0);
   const completedEvents = Math.max(0, data.completed_events || 0);
   const ratio = completedEvents / totalEvents;
-
-  if (data.phase === 'converting' || data.phase === 'validating') {
-    setProgress(Math.min(30, Math.round(10 + ratio * 20)));
-    setMessage(
-      data.progress_message ??
-        (data.phase === 'converting'
-          ? 'Converting RSP files...'
-          : 'Validating files...'),
-    );
-    setProgressPhase('validating');
-    return;
-  }
-
-  const progressMessage =
+  const stabilizedPhase =
+    phaseRank(previous.progressPhase) > phaseRank(incomingPhase)
+      ? previous.progressPhase
+      : incomingPhase;
+  const progress = Math.min(99, Math.max(previous.progress, estimatedProgress(stabilizedPhase, ratio)));
+  const message =
     data.progress_message ??
-    (data.current_event
-      ? `Processed ${completedEvents}/${totalEvents}: ${data.current_event}`
-      : `Processing events: ${completedEvents}/${totalEvents}`);
+    defaultProgressMessage(stabilizedPhase, completedEvents, totalEvents, data.current_event);
 
-  setProgress(Math.min(99, Math.round(30 + ratio * 69)));
-  setMessage(progressMessage);
-  setProgressPhase('processing');
+  return {
+    progress,
+    progressPhase: stabilizedPhase,
+    message,
+  };
 }
 
 export function useUpload(options: UseUploadOptions = {}): UseUploadReturn {
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [message, setMessage] = useState('');
-  const [progressPhase, setProgressPhase] = useState<UploadProgressPhase>('uploading');
+  const [progressPhase, setProgressPhase] = useState<UploadProgressPhase>('upload_received');
   const abortRef = useRef<AbortController | null>(null);
   const cancelledRef = useRef(false);
+  const progressStateRef = useRef<UploadProgressState>({
+    progress: 0,
+    progressPhase: 'upload_received',
+    message: '',
+  });
+
+  const setProgressState = useCallback((next: UploadProgressState) => {
+    progressStateRef.current = next;
+    setProgress(next.progress);
+    setProgressPhase(next.progressPhase);
+    setMessage(next.message);
+  }, []);
 
   const upload = useCallback(
     async (
@@ -93,9 +154,11 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadReturn {
       const { setFolderUploadInProgress } = useUIStore.getState();
       setFolderUploadInProgress(true);
       setIsUploading(true);
-      setProgress(0);
-      setMessage('Uploading files...');
-      setProgressPhase('uploading');
+      setProgressState({
+        progress: 0,
+        progressPhase: 'upload_received',
+        message: 'Uploading files...',
+      });
 
       try {
         const start = await uploadApi.startFolderUpload(
@@ -104,32 +167,41 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadReturn {
           metadata,
           (percent, isProcessing) => {
             if (isProcessing) {
-              setProgress(10);
-              setMessage('Processing on server (this may take a few minutes)...');
-              setProgressPhase('uploading');
+              setProgressState({
+                progress: 10,
+                progressPhase: 'upload_received',
+                message: 'Processing on server (this may take a few minutes)...',
+              });
             } else {
-              setProgress(Math.round(percent * 0.1));
-              setMessage('Uploading files...');
-              setProgressPhase('uploading');
+              setProgressState({
+                progress: Math.round(percent * 0.1),
+                progressPhase: 'upload_received',
+                message: 'Uploading files...',
+              });
             }
           },
           abortRef.current.signal,
         );
 
-        setProgress(10);
-        setMessage('Validating files...');
-        setProgressPhase('validating');
+        setProgressState({
+          progress: Math.max(progressStateRef.current.progress, 10),
+          progressPhase: 'upload_received',
+          message: 'Upload received by server...',
+        });
 
         const finalEvent = await uploadApi.waitForUploadTask(
           start.task_id,
           (data) => {
             if (cancelledRef.current) return;
-            applyUploadTaskProgress(data, setProgress, setMessage, setProgressPhase);
+            setProgressState(applyUploadTaskProgress(data, progressStateRef.current));
           },
           (state) => {
             if (cancelledRef.current) return;
             if (state.connectionLost && state.message) {
-              setMessage(state.message);
+              setProgressState({
+                ...progressStateRef.current,
+                message: state.message,
+              });
             }
           },
         );
@@ -139,24 +211,30 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadReturn {
           throw new Error('Upload completed without result');
         }
 
-        setProgress(100);
-        setMessage(
-          response.pending_channel_map
+        setProgressState({
+          progress: 100,
+          progressPhase: 'writing',
+          message: response.pending_channel_map
             ? `Complete: ${response.files.length} files pending channel map`
-            : `Complete: ${response.files.length} files processed`
-        );
-        setProgressPhase('processing');
+            : `Complete: ${response.files.length} files processed`,
+        });
 
         options.onComplete?.(response);
         return response;
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
-          setMessage('Upload cancelled');
+          setProgressState({
+            ...progressStateRef.current,
+            message: 'Upload cancelled',
+          });
           throw error;
         }
         const errorMessage =
           error instanceof Error ? error.message : 'Upload failed';
-        setMessage(errorMessage);
+        setProgressState({
+          ...progressStateRef.current,
+          message: errorMessage,
+        });
         options.onError?.(errorMessage);
         throw error;
       } finally {
@@ -165,7 +243,7 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadReturn {
         setIsUploading(false);
       }
     },
-    [options]
+    [options, setProgressState]
   );
 
   const cancel = useCallback(() => {
@@ -173,10 +251,12 @@ export function useUpload(options: UseUploadOptions = {}): UseUploadReturn {
     abortRef.current?.abort();
     useUIStore.getState().setFolderUploadInProgress(false);
     setIsUploading(false);
-    setProgress(0);
-    setMessage('');
-    setProgressPhase('uploading');
-  }, []);
+    setProgressState({
+      progress: 0,
+      progressPhase: 'upload_received',
+      message: '',
+    });
+  }, [setProgressState]);
 
   return {
     upload,

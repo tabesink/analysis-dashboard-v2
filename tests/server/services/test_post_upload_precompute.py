@@ -219,6 +219,20 @@ def test_schedule_precompute_decision_to_extension_maps_blocked_outcome() -> Non
     )
 
 
+def test_schedule_precompute_decision_to_extension_maps_rescale_outcome() -> None:
+    extension = schedule_precompute_decision_to_extension(
+        {
+            "action": "rescale_scheduled_damage",
+            "updated_rows": 24,
+        }
+    )
+
+    assert extension == {
+        "schedule_command_outcome": "rescaled_scheduled_damage",
+        "updated_damage_rows": 24,
+    }
+
+
 def test_decide_after_channel_reprocess_reuses_active_damage_task(
     test_database,
     test_cache,

@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/popover';
 import { DamageEventTree } from '@/components/damage/DamageEventTree';
 import { FilterableColumnHeader } from '@/components/database-table';
-import { ColumnResizeHandle } from '@/components/upload/ColumnResizeHandle';
+import { ColumnResizeHandle } from '@/features/database/datasets';
 import { cn } from '@/lib/utils';
 import {
   filterRowsByColumnFilters,

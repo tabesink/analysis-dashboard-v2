@@ -79,10 +79,11 @@ def test_upload_task_polling_does_not_block_dataset_list(
     rate_limiter.check_rate_limit(datasets_request)
 
 
-@pytest.mark.asyncio
-async def test_middleware_returns_json_429_without_unhandled_exception(
+def test_middleware_returns_json_429_without_unhandled_exception(
     rate_limiter: RateLimiter,
 ) -> None:
+    import anyio
+
     request = _make_request("/api/v1/upload/folder/start", "POST")
     upload_bucket = rate_limiter._get_bucket("upload:ip:127.0.0.1", 10)
     upload_bucket.tokens = 0
@@ -90,7 +91,7 @@ async def test_middleware_returns_json_429_without_unhandled_exception(
     middleware = RateLimitMiddleware(MagicMock(), rate_limiter)
     call_next = AsyncMock()
 
-    response = await middleware.dispatch(request, call_next)
+    response = anyio.run(middleware.dispatch, request, call_next)
 
     assert response.status_code == 429
     assert response.headers.get("retry-after") is not None

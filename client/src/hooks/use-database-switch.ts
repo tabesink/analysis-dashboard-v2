@@ -9,11 +9,10 @@ import { clearStoredSessionIdentity } from '@/lib/session/session-identity';
 import type {
   DatabaseSwitchDialogProps,
   DatabaseSwitchMode,
-} from '@/components/upload/DatabaseSwitchDialog';
+} from '@/features/database/portability/types';
 
 export interface UseDatabaseSwitchOptions {
   isAdmin: boolean;
-  canWrite: boolean;
 }
 
 export interface UseDatabaseSwitchReturn {
@@ -26,7 +25,6 @@ export interface UseDatabaseSwitchReturn {
 
 export function useDatabaseSwitch({
   isAdmin,
-  canWrite,
 }: UseDatabaseSwitchOptions): UseDatabaseSwitchReturn {
   const queryClient = useQueryClient();
   const [databaseSwitchOpen, setDatabaseSwitchOpen] = useState(false);
@@ -76,8 +74,8 @@ export function useDatabaseSwitch({
   }, [isAdmin, resetDatabaseSwitchState]);
 
   const handleConnectDatabase = useCallback(async () => {
-    if (!canWrite) {
-      toast.error('Write access required');
+    if (!isAdmin) {
+      toast.error('Admin access required');
       return;
     }
     resetDatabaseSwitchState();
@@ -102,7 +100,7 @@ export function useDatabaseSwitch({
       setIsLoadingDatabaseCatalog(false);
       setIsConnectingDatabase(false);
     }
-  }, [canWrite, resetDatabaseSwitchState]);
+  }, [isAdmin, resetDatabaseSwitchState]);
 
   const handleDatabaseSwitchOpenChange = useCallback(
     (open: boolean) => {

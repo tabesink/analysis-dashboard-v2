@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import { executeScopeDelete } from '@/features/database-scope-delete/execute-scope-delete';
 import { buildScopeDeletePlan } from '@/features/database-scope-delete/build-scope-delete-plan';
-import { PROGRAM_SCOPE_PREFIX } from '@/components/upload/DatabaseEventTree';
+import { PROGRAM_SCOPE_PREFIX } from '@/features/database/datasets';
 import type { ProgramVersionSummary } from '@/types/upload';
 
 const deleteProgramVersionScope = vi.fn();

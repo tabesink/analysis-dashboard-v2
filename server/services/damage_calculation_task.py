@@ -16,10 +16,13 @@ from server.services.schedule_damage_calculation import (
 )
 from server.services.schedule_damage_prerequisites import check_damage_prerequisites
 from server.services.schedule_damage_validation import validate_schedule_for_damage
+from server.upload.task_kinds import (
+    DERIVED_DATA_TASK_KINDS,
+    TASK_KIND_DAMAGE_CALCULATION,
+)
 
 logger = logging.getLogger(__name__)
 
-TASK_KIND_DAMAGE_CALCULATION = "damage_calculation"
 UPLOAD_TASK_TTL_MINUTES = 30
 
 
@@ -97,9 +100,7 @@ class DamageCalculationTaskService:
         self.db.delete_expired_upload_tasks()
         existing = self.db.find_active_derived_data_task(program_id, version)
         if existing is not None:
-            allowed_kinds = reuse_task_kinds or frozenset(
-                {"channel_reprocess", "damage_calculation"},
-            )
+            allowed_kinds = reuse_task_kinds or DERIVED_DATA_TASK_KINDS
             if str(existing.get("task_kind") or "") not in allowed_kinds:
                 existing = None
         if existing is not None:

@@ -1,6 +1,7 @@
 'use client';
 
 import { PlotCardShell } from '@/components/charts/PlotCardShell';
+import { PlotLegendOverlay } from '@/components/charts/PlotLegendOverlay';
 import {
   DAMAGE_PLOT_CHART_REGION_CLASS,
   PLOT_CARD_BASE_CLASS,
@@ -58,8 +59,11 @@ export function AbsoluteByEventPlotCard({
   const yMax = spec.yScale.domain[1] > 0 ? spec.yScale.domain[1] : 1;
   const tickCount = 5;
   const ticks = Array.from({ length: tickCount }, (_, index) => (yMax / (tickCount - 1)) * index);
-  const visibleLegendItems = spec.series.slice(0, 5);
-  const hiddenLegendCount = Math.max(0, spec.series.length - visibleLegendItems.length);
+  const legendItems = spec.series.map((series) => ({
+    id: series.id,
+    label: series.label,
+    color: series.color,
+  }));
   const padding = computeDamagePlotChartPadding({ categoryLabels: spec.xCategories });
   const labelFontSize = axisLabelFontSize(spec.xCategories.length);
 
@@ -194,23 +198,7 @@ export function AbsoluteByEventPlotCard({
           })}
         </svg>
 
-        <div className="pointer-events-none absolute right-1 top-1 max-w-[54%] rounded-md bg-white/85 px-1.5 py-0.5 ring-1 ring-gray-200/70 backdrop-blur-sm">
-          <ul className="flex flex-wrap items-center justify-end gap-x-1.5 gap-y-0.5">
-            {visibleLegendItems.map((series) => (
-              <li key={series.id} className="flex items-center gap-1 text-[9px] text-gray-700">
-                <span
-                  className="inline-block h-1.5 w-1.5 rounded-full"
-                  style={{ backgroundColor: series.color }}
-                  aria-hidden="true"
-                />
-                <span className="max-w-14 truncate">{series.label}</span>
-              </li>
-            ))}
-            {hiddenLegendCount > 0 ? (
-              <li className="text-[9px] text-muted-foreground">+{hiddenLegendCount}</li>
-            ) : null}
-          </ul>
-        </div>
+        <PlotLegendOverlay items={legendItems} />
 
         {spec.warnings[0] ? (
           <p className="pointer-events-none absolute left-1 top-1 max-w-[70%] truncate rounded-md bg-amber-100/90 px-1.5 py-0.5 text-[9px] text-amber-800 shadow-sm">

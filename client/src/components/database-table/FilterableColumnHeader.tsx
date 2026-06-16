@@ -7,7 +7,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ColumnResizeHandle } from '@/components/upload/ColumnResizeHandle';
+import { ColumnResizeHandle } from '@/features/database/datasets';
 import type { SortDirection } from '@/lib/database-table/shared';
 
 export type FilterableColumnHeaderProps = {

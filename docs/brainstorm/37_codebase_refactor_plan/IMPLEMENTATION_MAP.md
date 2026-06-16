@@ -144,6 +144,13 @@ upload_received -> cancelled
 Derived-data phases should not be interleaved with folder-upload phases. UI progress should display the active task kind and the ordered phase from the backend. If several downstream tasks exist, the UI must not flip-flop between upstream and downstream percentages.
 
 Startup reconciliation must mark stale/running persisted tasks as recoverable terminal or retryable states according to the existing task contract. Preserve the one-active-derived-task-per-program/version guard.
+Implemented reconciliation contract:
+
+- On startup, persisted `upload_tasks` rows with active lane kinds (`folder_upload`, `channel_reprocess`, `damage_calculation`) and active statuses (`queued`, `running`) are terminalized to `status=failed`, `phase=failed`.
+- Reconciled rows clear transient progress fields (`sub_phase`, `progress_message`, `current_event`) and default `error` to `Task interrupted by server restart` when no explicit error exists.
+- Completed/failed/cancelled rows are left untouched.
+- Derived active-task reuse still only considers `channel_reprocess` and `damage_calculation` with active statuses, so startup reconciliation clears stale blockers and preserves one-active-derived-task-per-program/version behavior.
+- Creator-scoped upload task status/SSE payloads include minimal observability metadata for troubleshooting without a diagnostics panel: `task_owner_user_id`, `task_kind`, `scope`, `phase`, progress fields, `terminal_state`, `result_summary`, and `error_details`.
 
 ## Permissions
 
@@ -154,6 +161,10 @@ Use named policies, not a single vague scope rule:
 - Uploaded-data admin policy: admins can CRUD uploaded data.
 - Scope delete policy: preserve existing exclusive-owner-or-admin or stricter behavior.
 - Database admin policy: only admins can create, connect, delete, and export databases.
+- Canonical helper names:
+  - `has_contributor_edit_uploaded_data_policy`
+  - `has_uploaded_data_admin_policy`
+  - `has_scope_delete_uploaded_data_policy`
 
 Do not weaken delete while extracting edit policy. Do not tighten contributor edit so much that owners lose the ability to maintain their uploaded datasets.
 
@@ -175,6 +186,7 @@ Existing services remain concrete anchors:
 - folder ingestion service
 - damage calculation task service
 - post-upload precompute decisions
+- dashboard orchestration service helpers for channel-map/schedule route workflows
 - database export service
 - DuckDB store
 
@@ -196,6 +208,7 @@ Shared client helpers should make display and submit behavior agree on:
 - label-to-payload mapping, including `Program ID` to `job_number`
 
 Progress components render backend task state. They do not infer workflow rules or manufacture progress percentages from unrelated tasks.
+Folder-upload progress UI renders the backend folder phases in order (`upload_received`, `converting`, `validating`, `writing`) and ignores non-folder task kinds instead of interleaving downstream derived-task progress.
 
 Use the existing toast notification system as the canonical lightweight user feedback channel. Toasts are appropriate for validation errors, permission failures, ignored-file notices, completed actions, cancellation acknowledgement, and non-blocking success/error feedback.
 
@@ -213,7 +226,7 @@ Legacy upload components can remain as compatibility wrappers during migration. 
 - Inspect Damage response is produced from persisted damage rows.
 - Backfill response is a write command response and may start or reuse a damage calculation task.
 - Database export responses remain admin-only and database-operation scoped.
-- Database import endpoints, client controls, and task flows are removed or disabled through a compatibility-safe deprecation path described by the issue.
+- Database import endpoints, client controls, and task flows are removed from active behavior; compatibility response is `410 Gone` with guidance to use database export plus create/connect workflow.
 - Client feedback uses toast notifications for routine information and validation, while upload and long-running database operation dialogs remain the detailed status surface.
 
 ## TDD Rules

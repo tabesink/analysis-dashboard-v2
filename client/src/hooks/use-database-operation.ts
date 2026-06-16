@@ -12,7 +12,7 @@ import type {
   DatabaseOperationMode,
   DatabaseWizardStep,
   DatabaseOperationModalProps,
-} from '@/components/upload/DatabaseOperationModal';
+} from '@/features/database/portability/types';
 import { useUIStore } from '@/stores/ui-store';
 
 function estimateDownloadTime(sizeMb: number): string | null {
@@ -30,8 +30,8 @@ function estimateDownloadTime(sizeMb: number): string | null {
 }
 
 export interface UseDatabaseOperationOptions {
-  currentEventCount: number;
-  onImportComplete: () => void;
+  currentEventCount?: number;
+  onImportComplete?: () => void;
 }
 
 export interface UseDatabaseOperationReturn {
@@ -40,14 +40,15 @@ export interface UseDatabaseOperationReturn {
   isImportBusy: boolean;
   exportProgress: string;
   startExport: () => Promise<void>;
+  /** @deprecated Database import was removed from active product surface (REF37-07). */
   openImport: () => void;
   modalProps: DatabaseOperationModalProps;
 }
 
 export function useDatabaseOperation({
-  currentEventCount,
-  onImportComplete,
-}: UseDatabaseOperationOptions): UseDatabaseOperationReturn {
+  currentEventCount = 0,
+  onImportComplete = () => {},
+}: UseDatabaseOperationOptions = {}): UseDatabaseOperationReturn {
   const [modalOpen, setModalOpen] = useState(false);
   const [mode, setMode] = useState<DatabaseOperationMode>('import');
   const [wizardStep, setWizardStep] = useState<DatabaseWizardStep>('confirm');
@@ -173,6 +174,7 @@ export function useDatabaseOperation({
 
         const { task_id } = await exportApi.startParquetExport();
         setActiveTaskId(task_id);
+        toast.info('Database export started');
 
         const final = await exportApi.waitForParquetTask(task_id, (s) => {
           setTaskStatus(s);
@@ -190,6 +192,7 @@ export function useDatabaseOperation({
             elapsedSeconds: (Date.now() - started) / 1000,
           });
           setWizardStep('summary');
+          toast.info('Database export cancelled');
           return;
         }
 
@@ -201,6 +204,7 @@ export function useDatabaseOperation({
             elapsedSeconds: (Date.now() - started) / 1000,
           });
           setWizardStep('summary');
+          toast.error(`Load-data export failed: ${final.error || 'Export failed'}`);
           return;
         }
 

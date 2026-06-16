@@ -13,7 +13,7 @@ Refactor upload into four lanes plus DB portability:
 1. **Folder upload** — CSV/RSP load histories into canonical raw data.
 2. **Channel map upload** — YAML map into channel assignments and LTTB reprocess.
 3. **Schedule upload** — durability schedule into schedule rows and damage calculation.
-4. **DB import** — Parquet ZIP restore/replace flow. `NOTES: remove db import; we do not need this now since we can create new databases and connect them`
+4. **DB import** — Parquet ZIP restore/replace flow. `DEVELOPER NOTES: remove db import; we do not need this now since we can create new databases and connect them`
 5. **DB export** — mirror portability flow.
 
 ## Primary architecture objective

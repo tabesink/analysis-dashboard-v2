@@ -536,6 +536,96 @@ def test_migration_runner_startup_path_applies_backfills_without_reapplying_sche
         store.close()
 
 
+def test_startup_backfill_reconciles_active_upload_and_derived_tasks(tmp_path: Path):
+    db_path = tmp_path / "startup-reconcile.db"
+    first_store = UnifiedStore(db_path)
+    try:
+        owner = first_store.create_user("startup-reconcile-owner")
+        first_store.create_upload_task(
+            task_id="folder-running",
+            created_by_user_id=owner["id"],
+            total_events=3,
+            task_kind="folder_upload",
+            phase="converting",
+        )
+        first_store.update_upload_task("folder-running", status="running", phase="converting")
+
+        first_store.create_upload_task(
+            task_id="channel-queued",
+            created_by_user_id=owner["id"],
+            total_events=2,
+            task_kind="channel_reprocess",
+            phase="validating",
+            scope={"program_id": "P-RECON", "version": "V1"},
+        )
+        first_store.create_upload_task(
+            task_id="damage-running",
+            created_by_user_id=owner["id"],
+            total_events=2,
+            task_kind="damage_calculation",
+            phase="calculating",
+            scope={"program_id": "P-RECON", "version": "V1"},
+        )
+        first_store.update_upload_task("damage-running", status="running", phase="calculating")
+
+        first_store.create_upload_task(
+            task_id="folder-completed",
+            created_by_user_id=owner["id"],
+            total_events=1,
+            task_kind="folder_upload",
+            phase="completed",
+        )
+        first_store.update_upload_task("folder-completed", status="completed", phase="completed")
+    finally:
+        first_store.close()
+
+    second_store = UnifiedStore(db_path)
+    try:
+        for task_id in ("folder-running", "channel-queued", "damage-running"):
+            row = second_store.get_upload_task(task_id)
+            assert row is not None
+            assert row["status"] == "failed"
+            assert row["phase"] == "failed"
+            assert row["error"] == "Task interrupted by server restart"
+
+        completed = second_store.get_upload_task("folder-completed")
+        assert completed is not None
+        assert completed["status"] == "completed"
+        assert completed["phase"] == "completed"
+    finally:
+        second_store.close()
+
+
+def test_startup_reconciliation_prevents_reusing_stale_derived_task(tmp_path: Path):
+    db_path = tmp_path / "startup-reconcile-derived.db"
+    first_store = UnifiedStore(db_path)
+    try:
+        owner = first_store.create_user("startup-derived-owner")
+        first_store.create_upload_task(
+            task_id="stale-damage",
+            created_by_user_id=owner["id"],
+            total_events=2,
+            task_kind="damage_calculation",
+            phase="calculating",
+            scope={"program_id": "P-REUSE", "version": "V1"},
+        )
+        first_store.update_upload_task("stale-damage", status="running", phase="calculating")
+    finally:
+        first_store.close()
+
+    second_store = UnifiedStore(db_path)
+    try:
+        # Startup reconciliation should terminalize old active rows so
+        # one-active-derived-task-per-scope checks can start fresh work.
+        active = second_store.find_active_derived_data_task("P-REUSE", "V1")
+        stale = second_store.get_upload_task("stale-damage")
+        assert active is None
+        assert stale is not None
+        assert stale["status"] == "failed"
+    finally:
+        second_store.close()
+
+
 def test_migration_runner_startup_path_heals_legacy_versioned_schema(tmp_path: Path):
     db_path = tmp_path / "legacy-versioned.db"
     conn = _duckdb_module().connect(str(db_path))

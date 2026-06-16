@@ -284,8 +284,8 @@ export const exportApi = {
   },
 
   /**
-   * Stream ZIP to server once; returns upload_id + validation for the modal.
-   * Uses XHR for upload progress events and a long timeout for multi-GB files.
+   * @deprecated Database import was removed from the active product surface (REF37-07).
+   * Calls now return 410 from the server with replacement guidance.
    */
   uploadParquetZip: async (
     file: File,
@@ -305,6 +305,10 @@ export const exportApi = {
     );
   },
 
+  /**
+   * @deprecated Database import was removed from the active product surface (REF37-07).
+   * Calls now return 410 from the server with replacement guidance.
+   */
   startParquetImport: async (uploadId: string): Promise<StartTaskResponse> => {
     const response = await fetchWithCredentials(
       `/api/v1/export/database/parquet/import/${uploadId}`,
@@ -316,6 +320,10 @@ export const exportApi = {
     return response.json();
   },
 
+  /**
+   * @deprecated Database import was removed from the active product surface (REF37-07).
+   * Calls now return 410 from the server with replacement guidance.
+   */
   cancelParquetUpload: async (uploadId: string): Promise<void> => {
     await fetchWithCredentials(`/api/v1/export/database/parquet/upload/${uploadId}`, {
       method: 'DELETE',

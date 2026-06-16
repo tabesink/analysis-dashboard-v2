@@ -9,8 +9,8 @@ function buildSpec(overrides?: Partial<Damage2DPlotSpec>): Damage2DPlotSpec {
   return {
     plotType: 'target_delta_vs_reference',
     chartKind: 'diverging-bar',
-    title: 'Target Δ vs Reference by channel',
-    subtitle: 'Absolute mode · Signed delta · 2 channels',
+    title: 'Target Δ vs Reference Damage by Channel',
+    subtitle: '',
     xCategories: ['BJ X Force', 'BJ Y Force'],
     yScale: {
       mode: 'linear',
@@ -57,11 +57,17 @@ describe('TargetDeltaVsReferencePlotCard', () => {
   it('renders diverging bars with a visible zero baseline and legend', () => {
     const markup = renderToStaticMarkup(<TargetDeltaVsReferencePlotCard spec={buildSpec()} />);
 
-    expect(markup).toContain('Target Δ vs Reference by channel');
+    expect(markup).toContain('Target Δ vs Reference Damage by Channel');
+    expect(markup).not.toContain('Absolute mode · Signed delta · 2 channels');
     expect(markup).toContain('data-delta-zero-baseline="true"');
     expect(markup).toContain('data-delta-bar-id="target_delta-0"');
     expect(markup).toContain('data-delta-bar-id="target_delta-1"');
     expect(markup).toContain('Ratio');
+    expect(markup).toContain('Target - Reference Δ');
+    expect(markup).toContain('data-plot-legend-overlay="true"');
+    expect(markup).toContain('text-xs text-gray-700');
+    expect(markup).not.toContain('bg-white/85');
+    expect(markup).not.toContain('ring-1');
   });
 
   it('always renders ratio metric values and marks low-reference rows as unavailable', () => {

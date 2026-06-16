@@ -127,6 +127,7 @@ def test_scaling_only_schedule_save_rescales_without_damage_task(
     )
 
     assert decision["action"] == "rescale_scheduled_damage"
+    assert decision["updated_rows"] > 0
     tasks_after = test_database.read_connection.execute(
         """
         SELECT COUNT(*) FROM upload_tasks

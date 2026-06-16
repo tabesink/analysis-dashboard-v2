@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import { DatabaseEventTree } from '@/components/upload/DatabaseEventTree';
+import { DatabaseEventTree } from '@/features/database/datasets';
 import type { DatasetInfo, ProgramVersionSummary } from '@/types/upload';
 
 const openMetadataEditDialog = vi.fn();

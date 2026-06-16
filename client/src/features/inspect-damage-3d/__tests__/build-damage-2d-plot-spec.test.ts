@@ -257,8 +257,8 @@ describe('buildDamage2DPlotSpec', () => {
     expect(spec.series[1]?.values[0]).toBeCloseTo(Math.log10(1 + 0.6));
     expect(spec.yScale.domain[1]).toBeCloseTo(Math.log10(1 + 0.6));
     expect(spec.yScale.tickFormat).toBe('log');
-    expect(spec.subtitle).toContain('Normalized');
-    expect(spec.subtitle).toContain('Log');
+    expect(spec.title).toBe('Cumulative Damage by Channel');
+    expect(spec.subtitle).toBe('');
   });
 
   it('builds cumulative-by-channel values from selected events when provided', () => {
@@ -272,10 +272,31 @@ describe('buildDamage2DPlotSpec', () => {
     });
 
     expect(spec.emptyState).toBeNull();
-    expect(spec.subtitle).toContain('Selected events');
+    expect(spec.subtitle).toBe('');
     expect(spec.series[0]?.values).toEqual([2, 5]);
     expect(spec.series[1]?.values).toEqual([0, 0]);
     expect(spec.yScale.domain).toEqual([0, 5]);
+  });
+
+  it('uses RSP event names in cumulative legend labels when available', () => {
+    const spec = buildDamage2DPlotSpec({
+      plotType: 'cumulative_by_channel',
+      aggregates: eventAggregates,
+      selectedChannelKeys: ['bj_y_force', 'bj_x_force'],
+      valueMode: 'absolute',
+      scaleMode: 'linear',
+      referenceEventIds: ['ref-event-1'],
+      targetEventIds: ['target-event-1'],
+      eventNameByEventId: new Map([
+        ['ref-event-1', 'mf4e3_100'],
+        ['target-event-1', 'mf4e3_200'],
+      ]),
+    });
+
+    expect(spec.legend).toEqual([
+      { label: 'Reference (mf4e3_100)', color: '#2563eb', role: 'reference' },
+      { label: 'Target (mf4e3_200)', color: '#dc2626', role: 'target' },
+    ]);
   });
 
   it('builds reference absolute-by-event stacked channel values from event aggregates', () => {
@@ -290,7 +311,8 @@ describe('buildDamage2DPlotSpec', () => {
 
     expect(spec.emptyState).toBeNull();
     expect(spec.chartKind).toBe('stacked-bar');
-    expect(spec.title).toBe('Reference absolute damage by event');
+    expect(spec.title).toBe('Damage by Event (Reference)');
+    expect(spec.subtitle).toBe('');
     expect(spec.xCategories).toEqual(['BJ Y Force', 'BJ X Force']);
     expect(spec.series).toEqual([
       {
@@ -323,7 +345,8 @@ describe('buildDamage2DPlotSpec', () => {
     });
 
     expect(spec.emptyState).toBeNull();
-    expect(spec.title).toBe('Target absolute damage by event');
+    expect(spec.title).toBe('Damage by Event (Target)');
+    expect(spec.subtitle).toBe('');
     expect(spec.chartKind).toBe('stacked-bar');
     expect(spec.xCategories).toEqual(['BJ Y Force', 'BJ X Force']);
     expect(spec.series).toEqual([
@@ -337,6 +360,23 @@ describe('buildDamage2DPlotSpec', () => {
     ]);
     expect(spec.legend).toEqual([{ label: 'Target', color: '#dc2626', role: 'target' }]);
     expect(spec.yScale.tickFormat).toBe('log');
+  });
+
+  it('uses provided RSP event names for absolute-by-event series labels', () => {
+    const spec = buildDamage2DPlotSpec({
+      plotType: 'reference_absolute_by_event',
+      aggregates: eventAggregates,
+      selectedChannelKeys: ['bj_y_force', 'bj_x_force'],
+      valueMode: 'absolute',
+      scaleMode: 'linear',
+      referenceEventIds: ['ref-event-1', 'ref-event-2'],
+      eventNameByEventId: new Map([
+        ['ref-event-1', 'mf4e3_100'],
+        ['ref-event-2', 'mf4e3_200'],
+      ]),
+    });
+
+    expect(spec.series.map((series) => series.label)).toEqual(['mf4e3_200', 'mf4e3_100']);
   });
 
   it('limits absolute-by-event stacks to the top threshold events plus Other events', () => {
@@ -378,7 +418,7 @@ describe('buildDamage2DPlotSpec', () => {
     });
 
     expect(spec.emptyState).toBeNull();
-    expect(spec.subtitle).toContain('1 of 3 events');
+    expect(spec.subtitle).toBe('');
     expect(spec.series).toEqual([
       {
         id: 'reference_event-0',
@@ -463,7 +503,8 @@ describe('buildDamage2DPlotSpec', () => {
     });
 
     expect(spec.chartKind).toBe('diverging-bar');
-    expect(spec.title).toBe('Target Δ vs Reference by channel');
+    expect(spec.title).toBe('Target Δ vs Reference Damage by Channel');
+    expect(spec.subtitle).toBe('');
     expect(spec.xCategories).toEqual(['BJ Y Force', 'BJ X Force']);
     expect(spec.series).toEqual([
       {
@@ -492,7 +533,7 @@ describe('buildDamage2DPlotSpec', () => {
     });
 
     expect(spec.emptyState).toBeNull();
-    expect(spec.subtitle).toContain('Selected events');
+    expect(spec.subtitle).toBe('');
     expect(spec.series[0]?.values).toEqual([4, 11]);
     expect(spec.series[0]?.flags).toEqual(['low_reference', 'low_reference']);
     expect(spec.deltaRows).toMatchObject([

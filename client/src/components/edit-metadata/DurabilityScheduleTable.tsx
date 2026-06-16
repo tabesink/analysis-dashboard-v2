@@ -3,7 +3,7 @@
 import type { CSSProperties } from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import { Info } from 'lucide-react';
-import { ColumnResizeHandle } from '@/components/upload/ColumnResizeHandle';
+import { ColumnResizeHandle } from '@/features/database/datasets';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import type { DurabilityScheduleRow } from '@/features/edit-metadata/lib/build-durability-schedule-rows';

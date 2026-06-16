@@ -39,7 +39,7 @@ export function LogoHeader() {
             </Link>
           </TooltipTrigger>
           <TooltipContent side="right" align="center">
-            <p>RSP Data Analytics</p>
+            <p>RSP Load Database</p>
           </TooltipContent>
         </Tooltip>
       </SidebarMenuItem>

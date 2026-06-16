@@ -23,8 +23,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from server.config import get_settings
-from server.dependencies import AdminRequiredDep, WriteUserDep, get_export_service
-from server.exceptions import ValidationError
+from server.dependencies import AdminRequiredDep, get_export_service
 from server.services.export import ExportService, _update_task, get_task
 from server.services.session import SessionManager
 from server.storage.database import UnifiedStore
@@ -323,7 +322,7 @@ async def stream_upload_to_disk(file: UploadFile, max_bytes: int) -> Path:
     response_model=DatabaseCatalogResponse,
 )
 async def list_databases(
-    _: WriteUserDep,
+    _: AdminRequiredDep,
     request: Request,
 ) -> DatabaseCatalogResponse:
     """List available dashboard database files and current active DB."""
@@ -395,7 +394,7 @@ def _validate_database_filename(target_name: str) -> str:
     response_model=SwitchDatabaseResponse,
 )
 async def connect_database(
-    _: WriteUserDep,
+    _: AdminRequiredDep,
     request: Request,
     payload: ConnectDatabaseRequest,
 ) -> SwitchDatabaseResponse:
@@ -624,50 +623,19 @@ async def download_parquet_export(
 
 @router.post(
     "/database/parquet/upload",
-    response_model=UploadResponse,
 )
 async def upload_parquet_export_for_import(
     _: AdminRequiredDep,
-    export_service: Annotated[ExportService, Depends(get_export_service)],
     file: UploadFile = File(..., description="Parquet export ZIP"),
-) -> UploadResponse:
-    """Stream ZIP to disk, validate once, return upload_id for confirm/import (admin)."""
-    max_upload_bytes = _settings().max_upload_size_mb * 1024 * 1024
-    tmp_path = await stream_upload_to_disk(file, max_upload_bytes)
-    try:
-        result = export_service.validate_import_zip(tmp_path)
-    except ValidationError as e:
-        tmp_path.unlink(missing_ok=True)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
-    except Exception:
-        tmp_path.unlink(missing_ok=True)
-        raise
-
-    compat = result.get("schema_compatibility", {})
-    warnings = _validation_warnings(compat)
-    validation = ValidationResponse(
-        valid=result["valid"],
-        event_count=result["event_count"],
-        size_mb=result["size_mb"],
-        tables=result["tables"],
-        schema_compatibility=SchemaCompatibility(**compat),
-        warnings=warnings,
+) -> dict[str, str]:
+    """Database import upload is removed from the active product surface."""
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail=(
+            "Database import has been removed. "
+            "Use database export plus create/connect database workflow instead."
+        ),
     )
-    upload_id = export_service.register_upload(tmp_path)
-    audit_log.info(
-        "db import upload received",
-        extra={
-            "event": "db_import_started",
-            "request_id": upload_id,
-            "upload_filename": file.filename,
-            "bytes": tmp_path.stat().st_size if tmp_path.is_file() else None,
-            "rows": result.get("event_count"),
-        },
-    )
-    return UploadResponse(upload_id=upload_id, validation=validation)
 
 
 @router.delete(
@@ -693,33 +661,29 @@ async def cancel_parquet_task(
 async def cancel_parquet_upload(
     _: AdminRequiredDep,
     upload_id: str,
-    export_service: Annotated[ExportService, Depends(get_export_service)],
 ) -> dict[str, bool]:
-    """Discard a validated upload ZIP without importing (admin)."""
-    export_service.cancel_pending_upload(upload_id)
-    return {"ok": True}
+    """Database import cancellation endpoint is removed with import flow."""
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail=(
+            "Database import has been removed. "
+            "Use database export plus create/connect database workflow instead."
+        ),
+    )
 
 
 @router.post(
     "/database/parquet/import/{upload_id}",
-    response_model=StartTaskResponse,
 )
 async def start_parquet_import(
     _: AdminRequiredDep,
     upload_id: str,
-    export_service: Annotated[ExportService, Depends(get_export_service)],
-) -> StartTaskResponse:
-    """Start background import from a prior upload (admin)."""
-    try:
-        task_id = export_service.start_import_task(upload_id)
-    except ValidationError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    audit_log.info(
-        "db import started",
-        extra={
-            "event": "db_import_started",
-            "request_id": task_id,
-            "reason": f"upload={upload_id}",
-        },
+) -> dict[str, str]:
+    """Database import start endpoint is removed from active API behavior."""
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail=(
+            "Database import has been removed. "
+            "Use database export plus create/connect database workflow instead."
+        ),
     )
-    return StartTaskResponse(task_id=task_id)

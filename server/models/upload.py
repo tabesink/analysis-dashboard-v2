@@ -45,6 +45,13 @@ class UploadTaskEvent(BaseModel):
 
     task_id: str
     status: str = Field(description="queued, running, completed, or failed")
+    terminal_state: str | None = Field(
+        default=None,
+        description="completed, failed, or cancelled when task reached a terminal state",
+    )
+    task_owner_user_id: str | None = None
+    task_kind: str | None = None
+    scope: dict[str, object] | None = None
     phase: str = Field(
         description="upload_received, converting, validating, writing, completed, failed"
     )
@@ -53,6 +60,8 @@ class UploadTaskEvent(BaseModel):
     current_event: str | None = None
     progress_message: str | None = None
     error: str | None = None
+    error_details: dict[str, object] | None = None
+    result_summary: str | None = None
     result: UploadResponse | None = None
 
 

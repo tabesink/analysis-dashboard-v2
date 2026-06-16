@@ -56,17 +56,23 @@ export interface UploadTaskStartResponse {
 
 export interface UploadTaskEvent {
   task_id: string;
-  status: 'queued' | 'running' | 'completed' | 'failed';
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  terminal_state?: 'completed' | 'failed' | 'cancelled';
+  task_owner_user_id?: string;
+  task_kind?: string;
+  scope?: Record<string, unknown>;
   phase: string;
   completed_events: number;
   total_events: number;
   current_event?: string;
   progress_message?: string | null;
   error?: string;
+  error_details?: Record<string, unknown>;
+  result_summary?: string;
   result?: UploadResponse;
 }
 
-export type UploadProgressPhase = 'uploading' | 'validating' | 'processing';
+export type UploadProgressPhase = 'upload_received' | 'converting' | 'validating' | 'writing';
 
 /**
  * Dataset information for upload management table

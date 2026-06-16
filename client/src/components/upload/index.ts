@@ -31,7 +31,3 @@ export {
   type ColumnResizeHandleProps,
 } from './ColumnResizeHandle';
 export { CsvPreviewTable, type CsvPreviewTableProps } from './CsvPreviewTable';
-
-// Legacy exports (deprecated - will be removed)
-export { UploadSidePanel, type UploadSidePanelProps } from './UploadSidePanel';
-export { UploadContent, type UploadContentProps } from './UploadContent';

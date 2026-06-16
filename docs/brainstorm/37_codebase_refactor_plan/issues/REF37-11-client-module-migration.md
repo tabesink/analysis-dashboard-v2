@@ -40,18 +40,18 @@ Preserve the app's notification split during moves: toast notifications remain t
 
 ## Acceptance Criteria
 
-- [ ] Folder upload components/hooks/API helpers move with compatibility exports where needed.
-- [ ] Database export/connect components/hooks/API helpers are separated from folder upload.
-- [ ] Channel-map, schedule, and derived-data components/hooks/API helpers are separated from folder upload.
-- [ ] Existing route/page behavior tests remain green after each move.
-- [ ] Deprecated upload wrappers are not extended with new behavior.
-- [ ] Deprecated wrappers are removed only after search confirms no active imports remain.
-- [ ] Client imports use lane-oriented module names rather than generic upload names where practical.
-- [ ] Existing toast notifications still fire for lightweight validation, permission, success, and error feedback after module moves.
-- [ ] Existing operation dialogs still show detailed status content for upload and long-running operations after module moves.
-- [ ] `docs/tasks/REF37-11.md` records files/modules moved, interfaces changed, and tests added.
-- [ ] GitNexus impact analysis is run before editing hook/component symbols.
-- [ ] Focused tests pass.
+- [x] Folder upload components/hooks/API helpers move with compatibility exports where needed.
+- [x] Database export/connect components/hooks/API helpers are separated from folder upload.
+- [x] Channel-map, schedule, and derived-data components/hooks/API helpers are separated from folder upload.
+- [x] Existing route/page behavior tests remain green after each move.
+- [x] Deprecated upload wrappers are not extended with new behavior.
+- [x] Deprecated wrappers are removed only after search confirms no active imports remain.
+- [x] Client imports use lane-oriented module names rather than generic upload names where practical.
+- [x] Existing toast notifications still fire for lightweight validation, permission, success, and error feedback after module moves.
+- [x] Existing operation dialogs still show detailed status content for upload and long-running operations after module moves.
+- [x] `docs/tasks/REF37-11.md` records files/modules moved, interfaces changed, and tests added.
+- [x] GitNexus impact analysis is run before editing hook/component symbols.
+- [x] Focused tests pass.
 
 ## Blocked By
 

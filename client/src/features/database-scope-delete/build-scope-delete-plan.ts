@@ -1,7 +1,7 @@
 import {
   PROGRAM_SCOPE_PREFIX,
   VERSION_SCOPE_PREFIX,
-} from '@/components/upload/DatabaseEventTree';
+} from '@/features/database/datasets';
 import type { ProgramVersionSummary } from '@/types/upload';
 
 export interface ParsedDeleteSelection {

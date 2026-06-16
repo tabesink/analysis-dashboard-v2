@@ -167,15 +167,12 @@ class MigrationRunner:
         """
         conn = self._get_connection()
         try:
-            conn.begin()
             statements = SchemaApplier(self.schema_loader).apply(conn)
-            conn.commit()
             return {
                 "success": True,
                 "statements_executed": len(statements),
             }
         except Exception as e:
-            conn.rollback()
             logger.error(f"Schema reconciliation failed: {e}")
             return {
                 "success": False,

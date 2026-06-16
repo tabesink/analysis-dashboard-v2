@@ -56,3 +56,10 @@ Clean up server route orchestration where tests show route code still owns too m
 ## Next Slice Can Assume
 
 Server lanes are thin enough for client module migration to proceed without chasing unstable route contracts.
+
+## Completion Note (2026-06-16)
+
+- Added `server/services/dashboard_orchestration.py` and moved channel-map/schedule orchestration details out of `server/routers/dashboard.py`.
+- Dashboard route handlers now keep auth/input/error mapping while delegating contributor-edit permission checks and schedule/channel-map orchestration to helpers.
+- Public route paths and response shapes are unchanged; existing dashboard/upload/export route tests remain the behavior coverage anchor for this slice.
+- Detailed implementation record: `docs/tasks/REF37-10.md`.

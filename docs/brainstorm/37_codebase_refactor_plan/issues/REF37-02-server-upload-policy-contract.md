@@ -57,3 +57,12 @@ Extract the server-side folder-upload lane rules into a pure policy contract and
 ## Next Slice Can Assume
 
 Server folder-upload rules are named, tested, and available as a pure contract for frontend parity work.
+
+## Completion Note
+
+Completed on 2026-06-16.
+
+- Pure policy contract added at `server/upload/policies.py`.
+- Folder-upload route now consumes pure policy classification/validation in `_parse_upload_payload`.
+- Coverage added in `tests/server/unit/routers/test_upload_policies.py`.
+- Task record: `docs/tasks/REF37-02.md`.

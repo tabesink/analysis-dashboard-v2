@@ -179,9 +179,6 @@ export function ComparisonLoadDataSections({
           targetSelectedCount,
         })}
       />
-      <div className="py-1">
-        <Separator className="bg-border/70" />
-      </div>
     </>
   );
 }

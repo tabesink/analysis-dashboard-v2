@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import { PlotCardShell } from '@/components/charts/PlotCardShell';
+import { PlotLegendOverlay } from '@/components/charts/PlotLegendOverlay';
 import {
   DAMAGE_PLOT_CHART_REGION_CLASS,
   PLOT_CARD_BASE_CLASS,
@@ -119,6 +120,11 @@ export function TargetDeltaVsReferencePlotCard({
   const labelFontSize = axisLabelFontSize(spec.xCategories.length);
   const zeroY = domainValueToPlotY(baselineValue, minDomain, maxDomain, padding);
   const metricLabel = getDeltaMetricLabel(metricMode);
+  const legendItems = spec.legend.map((legendItem) => ({
+    id: legendItem.role,
+    label: legendItem.label,
+    color: legendItem.color,
+  }));
   const axisTickFormat = metricMode;
   const axisTicks = [minDomain, baselineValue, maxDomain];
 
@@ -139,7 +145,7 @@ export function TargetDeltaVsReferencePlotCard({
           preserveAspectRatio="xMidYMid meet"
           className="h-full max-h-full w-full max-w-full"
           role="img"
-          aria-label="Target delta versus reference diverging bar chart"
+          aria-label="Target Δ vs Reference Damage by Channel diverging bar chart"
           data-delta-axis-format={axisTickFormat}
         >
           <rect
@@ -262,20 +268,7 @@ export function TargetDeltaVsReferencePlotCard({
           })}
         </svg>
 
-        <div className="pointer-events-none absolute bottom-8 right-1 max-w-[58%] rounded-md bg-white/85 px-1.5 py-0.5 ring-1 ring-gray-200/70 backdrop-blur-sm">
-          <ul className="flex flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
-            {spec.legend.map((legendItem) => (
-              <li key={legendItem.role} className="flex items-center gap-1 text-[9px] text-gray-700">
-                <span
-                  className="inline-block h-1.5 w-1.5 rounded-full"
-                  style={{ backgroundColor: legendItem.color }}
-                  aria-hidden="true"
-                />
-                <span className="truncate">{metricLabel}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <PlotLegendOverlay items={legendItems} />
 
         {spec.warnings[0] ? (
           <p className="pointer-events-none absolute left-1 top-7 max-w-[70%] truncate rounded-md bg-amber-100/90 px-1.5 py-0.5 text-[9px] text-amber-800 shadow-sm">

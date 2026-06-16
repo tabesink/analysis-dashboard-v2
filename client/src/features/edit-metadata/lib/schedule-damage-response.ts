@@ -6,6 +6,7 @@ import type {
 export type ScheduleDamageResponseResolution =
   | { kind: 'damage_task'; taskId: string }
   | { kind: 'prerequisite_report'; report: DamageFailureReport }
+  | { kind: 'rescaled'; updatedRows?: number | null }
   | { kind: 'none' };
 
 export function resolveScheduleDamageResponse(
@@ -29,6 +30,10 @@ export function resolveScheduleDamageResponse(
       };
     }
     return { kind: 'none' };
+  }
+
+  if (response.schedule_command_outcome === 'rescaled_scheduled_damage') {
+    return { kind: 'rescaled', updatedRows: response.updated_damage_rows };
   }
 
   if (response.damage_task_id) {

@@ -52,9 +52,19 @@ export function ComparisonPlotInputsSection({
                 type="button"
                 size="sm"
                 variant={selected ? 'secondary' : 'outline'}
-                className="h-6 px-2 text-[10px]"
+                className={cn(
+                  'h-6 gap-1 px-2 text-[10px]',
+                  !selected &&
+                    'border-dashed border-muted-foreground/40 bg-transparent text-muted-foreground/90 opacity-80 line-through decoration-muted-foreground/70 decoration-1',
+                )}
                 onClick={() => onChannelToggle(channel.key)}
                 aria-pressed={selected}
+                aria-label={
+                  selected
+                    ? `Channel ${channel.shortLabel} enabled`
+                    : `Channel ${channel.shortLabel} disabled`
+                }
+                data-channel-enabled={selected ? 'true' : 'false'}
               >
                 {channel.shortLabel}
               </Button>

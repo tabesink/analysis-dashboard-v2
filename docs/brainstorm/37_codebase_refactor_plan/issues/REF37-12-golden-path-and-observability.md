@@ -62,3 +62,9 @@ Verify the user feedback contract across the golden path: lightweight validation
 ## Next Slice Can Assume
 
 Phase 37 has end-to-end behavior coverage and any remaining work is a follow-on reliability or UX enhancement, not core refactor completion.
+
+## Completion Note (2026-06-16)
+
+- Implemented minimal structured upload-task observability in polling/SSE payloads (owner, kind, scope, terminal state, result summary, error details) with additive optional fields only.
+- Added/updated upload-router regression coverage for completed/failed task observability payload semantics.
+- Recorded completion details in `docs/tasks/REF37-12.md` and updated `HANDOFF.md` to mark the full Phase 37 issue chain complete.

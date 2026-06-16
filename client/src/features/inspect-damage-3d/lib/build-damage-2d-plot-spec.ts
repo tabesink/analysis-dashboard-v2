@@ -65,6 +65,7 @@ type BuildDamage2DPlotSpecInput = {
   targetScopeKey?: string | null;
   referenceScopeLabel?: string | null;
   targetScopeLabel?: string | null;
+  eventNameByEventId?: ReadonlyMap<string, string>;
   /** When set, cumulative and absolute-by-event plots use this domain instead of per-plot maxima. */
   sharedYDomain?: [number, number];
   eventThreshold?: number;
@@ -117,6 +118,18 @@ function buildSubtitle(params: {
   const valueModeLabel = params.valueMode === 'normalized' ? 'Normalized' : 'Absolute';
   const scaleModeLabel = params.scaleMode === 'log' ? 'Log scale' : 'Linear scale';
   return `${valueModeLabel} mode · ${scaleModeLabel} · ${params.channelCount} channels`;
+}
+
+function buildDatasetLegendLabel(params: {
+  dataset: 'reference' | 'target';
+  eventIds?: readonly string[];
+  eventNameByEventId?: ReadonlyMap<string, string>;
+}): string {
+  const prefix = params.dataset === 'reference' ? 'Reference' : 'Target';
+  const eventId = params.eventIds?.[0];
+  if (!eventId) return prefix;
+  const eventName = params.eventNameByEventId?.get(eventId) ?? eventId;
+  return `${prefix} (${eventName})`;
 }
 
 function toSelectedValue(
@@ -198,6 +211,7 @@ function buildThresholdedEventSeries(params: {
   orderedEventIds: string[];
   channelKeys: string[];
   valuesByEventAndChannel: Map<string, number>;
+  eventNameByEventId?: ReadonlyMap<string, string>;
   seriesId: string;
   seriesColor: string;
   scaleMode: DamagePlotScaleMode;
@@ -207,6 +221,7 @@ function buildThresholdedEventSeries(params: {
     orderedEventIds,
     channelKeys,
     valuesByEventAndChannel,
+    eventNameByEventId,
     seriesId,
     seriesColor,
     scaleMode,
@@ -249,7 +264,7 @@ function buildThresholdedEventSeries(params: {
     );
     return {
       id: `${seriesId}-${eventIndex}`,
-      label: eventId,
+      label: eventNameByEventId?.get(eventId) ?? eventId,
       color: eventSegmentColor(seriesColor, eventIndex),
       values: rawValues.map((value) => applyDamageScale(value, scaleMode)),
       percentages: toPercentages(rawValues),
@@ -317,6 +332,7 @@ function computeEventStackedScaledMax(
     seriesColor: dataset === 'reference' ? REFERENCE_COLOR : TARGET_COLOR,
     scaleMode: input.scaleMode,
     eventThreshold: input.eventThreshold,
+    eventNameByEventId: input.eventNameByEventId,
   });
   const stackedTotals = channelKeys.map((_, channelIndex) =>
     eventSeries.reduce((sum, item) => sum + (item.values[channelIndex] ?? 0), 0),
@@ -423,6 +439,7 @@ function buildAbsoluteByEventSpec(params: {
     seriesColor: params.seriesColor,
     scaleMode: input.scaleMode,
     eventThreshold: input.eventThreshold,
+    eventNameByEventId: input.eventNameByEventId,
   });
   const stackedTotals = channelKeys.map((_, channelIndex) =>
     series.reduce((sum, item) => sum + (item.values[channelIndex] ?? 0), 0),
@@ -433,11 +450,6 @@ function buildAbsoluteByEventSpec(params: {
     ...baseSpec,
     chartKind: 'stacked-bar',
     title: params.title,
-    subtitle: `${input.valueMode === 'normalized' ? 'Normalized' : 'Absolute'} mode · ${
-      input.scaleMode === 'log' ? 'Log scale' : 'Linear scale'
-    } · ${Math.min(clampEventThreshold(input.eventThreshold), orderedEventIds.length)} of ${
-      orderedEventIds.length
-    } events · ${channelKeys.length} channels`,
     xCategories: channelKeys.map((channelKey) => labelByChannelKey.get(channelKey) ?? channelKey),
     yScale: {
       mode: input.scaleMode,
@@ -453,12 +465,8 @@ function makeBaseSpec(input: BuildDamage2DPlotSpecInput): Damage2DPlotSpec {
   return {
     plotType: input.plotType,
     chartKind: 'grouped-bar',
-    title: 'Cumulative by channel',
-    subtitle: buildSubtitle({
-      valueMode: input.valueMode,
-      scaleMode: input.scaleMode,
-      channelCount: input.selectedChannelKeys.length,
-    }),
+    title: 'Cumulative Damage by Channel',
+    subtitle: '',
     xCategories: [],
     yScale: {
       mode: input.scaleMode,
@@ -481,7 +489,7 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
     return buildAbsoluteByEventSpec({
       input,
       dataset: 'reference',
-      title: 'Reference absolute damage by event',
+      title: 'Damage by Event (Reference)',
       seriesId: 'reference_event',
       seriesLabel: 'Reference',
       seriesColor: REFERENCE_COLOR,
@@ -492,7 +500,7 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
     return buildAbsoluteByEventSpec({
       input,
       dataset: 'target',
-      title: 'Target absolute damage by event',
+      title: 'Damage by Event (Target)',
       seriesId: 'target_event',
       seriesLabel: 'Target',
       seriesColor: TARGET_COLOR,
@@ -504,7 +512,7 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
       return {
         ...baseSpec,
         chartKind: 'diverging-bar',
-        title: 'Target Δ vs Reference by channel',
+        title: 'Target Δ vs Reference Damage by Channel',
         warnings: ['Comparison aggregates are unavailable.'],
         emptyState: {
           title: 'No comparison data available',
@@ -517,7 +525,7 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
       return {
         ...baseSpec,
         chartKind: 'diverging-bar',
-        title: 'Target Δ vs Reference by channel',
+        title: 'Target Δ vs Reference Damage by Channel',
         warnings: ['No selected channels were provided.'],
         emptyState: {
           title: 'Select plotted channels',
@@ -548,7 +556,7 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
         return {
           ...baseSpec,
           chartKind: 'diverging-bar',
-          title: 'Target Δ vs Reference by channel',
+          title: 'Target Δ vs Reference Damage by Channel',
           warnings: ['Selected events have no delta aggregate rows.'],
           emptyState: {
             title: 'No selected event deltas',
@@ -585,10 +593,7 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
       return {
         ...baseSpec,
         chartKind: 'diverging-bar',
-        title: 'Target Δ vs Reference by channel',
-        subtitle: `${input.valueMode === 'normalized' ? 'Normalized' : 'Absolute'} mode · Selected events · ${
-          deltaRows.length
-        } channels`,
+        title: 'Target Δ vs Reference Damage by Channel',
         xCategories: deltaRows.map((row) => row.channelLabel),
         yScale: {
           mode: 'linear',
@@ -621,7 +626,7 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
       return {
         ...baseSpec,
         chartKind: 'diverging-bar',
-        title: 'Target Δ vs Reference by channel',
+        title: 'Target Δ vs Reference Damage by Channel',
         warnings: ['Selected channels have no delta aggregate rows.'],
         emptyState: {
           title: 'No channel delta totals',
@@ -645,10 +650,7 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
     return {
       ...baseSpec,
       chartKind: 'diverging-bar',
-      title: 'Target Δ vs Reference by channel',
-      subtitle: `${input.valueMode === 'normalized' ? 'Normalized' : 'Absolute'} mode · Signed delta · ${
-        selectedRows.length
-      } channels`,
+      title: 'Target Δ vs Reference Damage by Channel',
       xCategories,
       yScale: {
         mode: 'linear',
@@ -769,15 +771,6 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
 
   return {
     ...baseSpec,
-    subtitle: hasEventSelection
-      ? `${input.valueMode === 'normalized' ? 'Normalized' : 'Absolute'} mode · ${input.scaleMode === 'log' ? 'Log scale' : 'Linear scale'} · Selected events · ${
-          channelKeys.length
-        } channels`
-      : buildSubtitle({
-          valueMode: input.valueMode,
-          scaleMode: input.scaleMode,
-          channelCount: channelKeys.length,
-        }),
     xCategories,
     yScale: {
       mode: input.scaleMode,
@@ -796,6 +789,26 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
         label: 'Target',
         color: TARGET_COLOR,
         values: targetValues,
+      },
+    ],
+    legend: [
+      {
+        label: buildDatasetLegendLabel({
+          dataset: 'reference',
+          eventIds: input.referenceEventIds,
+          eventNameByEventId: input.eventNameByEventId,
+        }),
+        color: REFERENCE_COLOR,
+        role: 'reference',
+      },
+      {
+        label: buildDatasetLegendLabel({
+          dataset: 'target',
+          eventIds: input.targetEventIds,
+          eventNameByEventId: input.eventNameByEventId,
+        }),
+        color: TARGET_COLOR,
+        role: 'target',
       },
     ],
   };

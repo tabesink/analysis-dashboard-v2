@@ -223,10 +223,12 @@ export interface DurabilityScheduleContextResponse {
   schedule_command_outcome?:
     | 'calculation_started'
     | 'reused_active_task'
+    | 'rescaled_scheduled_damage'
     | 'validation_blocked'
     | 'failed_to_start';
   damage_task_id?: string;
   damage_task_status?: 'validating' | 'calculating' | 'completed' | 'failed';
+  updated_damage_rows?: number | null;
   damage_prerequisite_report?: DamageFailureReport;
 }
 

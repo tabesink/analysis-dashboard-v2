@@ -6,6 +6,8 @@ import csv
 import json
 from typing import Any
 
+from server.upload.task_kinds import ACTIVE_UPLOAD_TASK_KINDS, ACTIVE_TASK_STATUSES
+
 
 def _column_exists(conn: Any, table_name: str, column_name: str) -> bool:
     return (
@@ -202,6 +204,50 @@ def _repair_event_channel_damage_primary_key(conn: Any) -> None:
     )
 
 
+def _reconcile_stale_active_upload_tasks(conn: Any) -> None:
+    """Mark startup-stale queued/running task rows as terminal failures."""
+    required = (
+        _table_exists(conn, "upload_tasks")
+        and _column_exists(conn, "upload_tasks", "task_kind")
+        and _column_exists(conn, "upload_tasks", "status")
+        and _column_exists(conn, "upload_tasks", "phase")
+    )
+    if not required:
+        return
+
+    stale_count = conn.execute(
+        """
+        SELECT COUNT(*)
+        FROM upload_tasks
+        WHERE task_kind IN (?, ?, ?)
+          AND status IN (?, ?)
+        """,
+        [*ACTIVE_UPLOAD_TASK_KINDS, *ACTIVE_TASK_STATUSES],
+    ).fetchone()
+    if stale_count is None or int(stale_count[0]) == 0:
+        return
+
+    conn.execute(
+        """
+        UPDATE upload_tasks
+        SET
+            status = 'failed',
+            phase = 'failed',
+            sub_phase = NULL,
+            progress_message = NULL,
+            current_event = NULL,
+            error = CASE
+                WHEN error IS NULL OR TRIM(error) = '' THEN 'Task interrupted by server restart'
+                ELSE error
+            END,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE task_kind IN (?, ?, ?)
+          AND status IN (?, ?)
+        """,
+        [*ACTIVE_UPLOAD_TASK_KINDS, *ACTIVE_TASK_STATUSES],
+    )
+
+
 def apply_startup_backfills(conn: Any) -> None:
     """Apply idempotent row backfills needed for legacy data compatibility."""
     users_can_write_exists = _column_exists(conn, "users", "can_write")
@@ -244,3 +290,4 @@ def apply_startup_backfills(conn: Any) -> None:
 
     _backfill_channel_map_headers(conn)
     _repair_event_channel_damage_primary_key(conn)
+    _reconcile_stale_active_upload_tasks(conn)
