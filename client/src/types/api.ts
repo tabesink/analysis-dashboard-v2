@@ -295,6 +295,7 @@ export interface DamageInspectRow {
   job_number?: string | null;
   work_order?: string | null;
   program_id: string;
+  version?: string | null;
   damages: Record<string, DamageCell>;
 }
 

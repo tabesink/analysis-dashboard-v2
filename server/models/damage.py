@@ -55,6 +55,7 @@ class DamageInspectRow(BaseModel):
     job_number: str | None = None
     work_order: str | None = None
     program_id: str
+    version: str | None = None
     damages: dict[str, DamageCell]
 
 

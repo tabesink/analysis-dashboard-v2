@@ -1723,3 +1723,13 @@ Keep legacy generic `col_N` pattern matching in `damage_channels.py` as a separa
 **Rationale:** PRD-35 requires a subtle in-plot damage-scale toggle and a shared transform that 3D and upcoming 2D specs can reuse. Centralizing transform math prevents drift across plot types while keeping sidepanel ownership boundaries unchanged (`Plot Inputs` still own channels + value mode only).
 
 **Key files:** `client/src/features/inspect-damage-3d/lib/damage-scale.ts`, `client/src/features/inspect-damage-3d/components/DamagePlotView.tsx`, `client/src/features/inspect-damage-3d/components/DamagePlotOverlayControls.tsx`, `client/src/features/inspect-damage-3d/__tests__/damage-scale.test.ts`, `docs/tasks/PU-35-04.md`.
+
+---
+
+## DEC-114 — Lean TDD-first upload refactor boundaries (2026-06-16)
+
+**Decision:** Refactor upload architecture through lean vertical TDD slices rather than introducing a full clean-architecture package up front. Keep folder upload, channel-map reprocess, schedule/damage, DB import, and DB export as separate lanes. Folder upload is a write path and should require write/admin permission. `POST /damage/inspect` remains read-only; `POST /damage/backfill` remains a separate explicit write-user repair command. Upload file staging and a shared bounded task runner are deferred reliability slices. Preserve contributor edit semantics separately from exclusive-owner-or-admin delete semantics.
+
+**Rationale:** The current app is a lightweight local-network modular monolith with useful concrete services already in place. Broad ports/adapters/repositories would add indirection before proving value. The safest path is one behavior test at a time: harden real write boundaries, extract pure lane policies, and move client/server structure only while behavior remains green.
+
+**Key files:** `docs/brainstorm/37_analysis_dashboard_upload_recommendations_md/`, `server/routers/upload.py`, `server/routers/dashboard.py`, `server/routers/damage.py`, `server/services/ingestion.py`, `server/services/export.py`, `client/src/app/database/page.tsx`, `client/src/components/upload/UploadDataSection.tsx`.

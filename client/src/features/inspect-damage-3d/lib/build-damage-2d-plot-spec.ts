@@ -32,7 +32,7 @@ export type Damage2DPlotSpec = {
     color: string;
     values: number[];
     percentages?: number[];
-    flags?: Array<'low_reference' | 'excluded'>;
+    flags?: Array<'low_reference' | 'excluded' | undefined>;
   }>;
   legend: Array<{
     label: string;
@@ -100,7 +100,7 @@ const EMPTY_DOMAIN: [number, number] = [0, 1];
 const DEFAULT_EVENT_THRESHOLD = 5;
 
 function clampEventThreshold(value: number | undefined): number {
-  if (!Number.isFinite(value)) return DEFAULT_EVENT_THRESHOLD;
+  if (value === undefined || !Number.isFinite(value)) return DEFAULT_EVENT_THRESHOLD;
   return Math.min(5, Math.max(1, Math.trunc(value)));
 }
 

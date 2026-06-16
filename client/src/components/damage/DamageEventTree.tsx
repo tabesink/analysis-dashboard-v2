@@ -8,7 +8,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { cn, getEventDisplayName } from '@/lib/utils';
-import type { EventMetadata } from '@/types/api';
+import type { DamageCell, EventMetadata } from '@/types/api';
 
 export interface DamageColumnDef {
   key: string;
@@ -27,6 +27,7 @@ export interface DamageEventTreeProps {
   onToggleVersionExpanded: (versionKey: string) => void;
   getColumnValue: (event: EventMetadata, columnKey: string) => string;
   renderChannelCell: (eventId: string, channelKey: string) => ReactNode;
+  getDamageCell: (eventId: string, channelKey: string) => DamageCell | undefined;
 }
 
 interface VersionGroup {
@@ -58,6 +59,7 @@ export function DamageEventTree({
   onToggleVersionExpanded,
   getColumnValue,
   renderChannelCell,
+  getDamageCell,
 }: DamageEventTreeProps) {
   const versionRowFirstCellWidth = Math.max(
     0,
@@ -68,6 +70,7 @@ export function DamageEventTree({
     programIdWidth - ROW_PADDING_X_PX - VERSION_INDENT_PX - LEAF_INDENT_PX,
   );
   const widthOf = (key: string) => columnWidths[key] ?? FALLBACK_COLUMN_PX;
+  const formatVersionTotal = (value: number): string => value.toExponential(1);
 
   const tree: ProgramGroup[] = useMemo(() => {
     const programMap = new Map<string, Map<string, EventMetadata[]>>();
@@ -117,6 +120,42 @@ export function DamageEventTree({
           style={{ width: widthOf(channelKey) }}
         />
       ))}
+    </>
+  );
+
+  const renderVersionDataColumns = (versionEvents: EventMetadata[]) => (
+    <>
+      {columnDefinitions.map((col) => (
+        <span
+          key={col.key}
+          className="shrink-0 px-2"
+          style={{ width: widthOf(col.key) }}
+        />
+      ))}
+      {channelKeys.map((channelKey) => {
+        let total = 0;
+        let hasIncludedValue = false;
+        for (const event of versionEvents) {
+          const cell = getDamageCell(event.event_id, channelKey);
+          if (!cell) continue;
+          if (cell.status !== 'current' && cell.status !== 'stale') continue;
+          if (cell.damage === null || cell.damage === undefined || Number.isNaN(cell.damage)) {
+            continue;
+          }
+          total += cell.damage;
+          hasIncludedValue = true;
+        }
+        const displayValue = hasIncludedValue ? formatVersionTotal(total) : '';
+        return (
+          <span
+            key={channelKey}
+            className="shrink-0 px-2 text-center tabular-nums text-xs text-black"
+            style={{ width: widthOf(channelKey) }}
+          >
+            {displayValue}
+          </span>
+        );
+      })}
     </>
   );
 
@@ -206,7 +245,7 @@ export function DamageEventTree({
                           </span>
                         </div>
                         <div className="flex items-center">
-                          {renderEmptyDataColumns()}
+                          {renderVersionDataColumns(versionGroup.events)}
                         </div>
                       </div>
 

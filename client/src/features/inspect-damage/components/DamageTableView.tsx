@@ -614,6 +614,9 @@ export function DamageTableView({
               onToggleProgramExpanded={toggleProgramExpanded}
               onToggleVersionExpanded={toggleVersionExpanded}
               getColumnValue={getColumnValue}
+              getDamageCell={(eventId, channelKey) =>
+                damageRowsByEventId.get(eventId)?.damages[channelKey]
+              }
               renderChannelCell={(eventId, channelKey) => {
                 const row = damageRowsByEventId.get(eventId);
                 const cell = row?.damages[channelKey];

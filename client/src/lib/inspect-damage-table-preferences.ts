@@ -7,6 +7,12 @@ import type {
   InspectDamageState,
   InspectDamageTablePreferencesState,
 } from '@/types/session';
+import type { DamageComparisonState } from '@/types/damage-comparison';
+
+export type InspectDamageStatePatch = {
+  table_preferences?: InspectDamageTablePreferencesState;
+  comparison?: Partial<DamageComparisonState>;
+};
 
 export type InspectDamageTablePreferences = {
   visibleColumns: Record<string, boolean>;
@@ -172,7 +178,7 @@ export function getDefaultTablePreferencesState(): InspectDamageTablePreferences
 
 export function mergeInspectDamageState(
   current: InspectDamageState | undefined | null,
-  patch: Partial<InspectDamageState>,
+  patch: InspectDamageStatePatch,
 ): InspectDamageState {
   return {
     table_preferences:

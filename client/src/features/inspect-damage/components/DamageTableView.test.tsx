@@ -87,5 +87,155 @@ describe('DamageTableView', () => {
     );
 
     expect(html).toContain('data-collapsible-open="false"');
+    expect(html).toContain('2.5e-1');
+  });
+
+  it('renders 1-decimal version totals using only current and stale channel values', () => {
+    const events: EventMetadata[] = [
+      {
+        event_id: 'evt-1',
+        program_id: 'P1',
+        version: 'V1',
+        status: 'Approved',
+        job_number: 'JOB-1',
+        work_order: 'WO-1',
+      },
+      {
+        event_id: 'evt-2',
+        program_id: 'P1',
+        version: 'V1',
+        status: 'Approved',
+        job_number: 'JOB-1',
+        work_order: 'WO-1',
+      },
+      {
+        event_id: 'evt-3',
+        program_id: 'P1',
+        version: 'V1',
+        status: 'Approved',
+        job_number: 'JOB-1',
+        work_order: 'WO-1',
+      },
+      {
+        event_id: 'evt-4',
+        program_id: 'P1',
+        version: 'V1',
+        status: 'Approved',
+        job_number: 'JOB-1',
+        work_order: 'WO-1',
+      },
+    ];
+    const damageRowsByEventId = new Map<string, DamageInspectResponse['rows'][number]>([
+      [
+        'evt-1',
+        {
+          event_id: 'evt-1',
+          program_id: 'P1',
+          job_number: 'JOB-1',
+          work_order: 'WO-1',
+          damages: {
+            channel_a: {
+              damage: 1.04,
+              base_damage: 1.04,
+              status: 'current',
+              error: null,
+              stale_reason: null,
+            },
+          },
+        },
+      ],
+      [
+        'evt-2',
+        {
+          event_id: 'evt-2',
+          program_id: 'P1',
+          job_number: 'JOB-1',
+          work_order: 'WO-1',
+          damages: {
+            channel_a: {
+              damage: 0.06,
+              base_damage: 0.06,
+              status: 'stale',
+              error: null,
+              stale_reason: 'stale source',
+            },
+          },
+        },
+      ],
+      [
+        'evt-3',
+        {
+          event_id: 'evt-3',
+          program_id: 'P1',
+          job_number: 'JOB-1',
+          work_order: 'WO-1',
+          damages: {
+            channel_a: {
+              damage: 10,
+              base_damage: 10,
+              status: 'error',
+              error: 'calculation failed',
+              stale_reason: null,
+            },
+          },
+        },
+      ],
+      [
+        'evt-4',
+        {
+          event_id: 'evt-4',
+          program_id: 'P1',
+          job_number: 'JOB-1',
+          work_order: 'WO-1',
+          damages: {
+            channel_a: {
+              damage: 20,
+              base_damage: 20,
+              status: 'unavailable',
+              error: 'missing map',
+              stale_reason: null,
+            },
+          },
+        },
+      ],
+    ]);
+    const channelMetadata = new Map<string, DamageInspectResponse['channels'][number]>([
+      [
+        'channel_a',
+        {
+          channel_key: 'channel_a',
+          channel_name: 'Channel A',
+          unit: null,
+        },
+      ],
+    ]);
+
+    const html = renderToStaticMarkup(
+      <DamageTableView
+        events={events}
+        damageRowsByEventId={damageRowsByEventId}
+        channelMetadata={channelMetadata}
+        isLoading={false}
+        inspectError={null}
+        viewState={{
+          showEmptyState: false,
+          showStaleWarning: false,
+          showCalculateAction: false,
+          showPrerequisiteGuidance: false,
+          runningScopes: [],
+          calculateScopes: [],
+          prerequisiteReports: [],
+          failureReports: [],
+        }}
+        isCalculatingDamage={false}
+        preferencesLoaded={true}
+        tablePreferences={null}
+        onSetTablePreferences={vi.fn()}
+        onResetTablePreferences={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain('1.1e+0');
+    expect(html).not.toContain('3.1e+1');
   });
 });

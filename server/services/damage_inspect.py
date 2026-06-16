@@ -51,6 +51,7 @@ def build_damage_inspect_response(
             job_number=event.get("job_number"),
             work_order=event.get("work_order"),
             program_id=program_id,
+            version=version,
             damages={},
         )
 

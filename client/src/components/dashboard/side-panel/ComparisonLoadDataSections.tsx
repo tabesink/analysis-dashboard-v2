@@ -51,7 +51,7 @@ export function enforceSingleProgramVersionScope(params: {
     ? eventById.get(latestAddedId)
     : undefined;
 
-  if (latestAddedScope) {
+  if (latestAddedScope && latestAddedId) {
     const scopeKey = getEventScopeKey(latestAddedScope);
     return scopeToEventIds.get(scopeKey) ?? [latestAddedId];
   }

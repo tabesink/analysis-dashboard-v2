@@ -6,6 +6,7 @@ import {
   mergeInspectDamageState,
   uiTablePrefsFromSession,
   uiTablePrefsToSession,
+  type InspectDamageStatePatch,
   type InspectDamageTablePreferences,
 } from '@/lib/inspect-damage-table-preferences';
 import { getDefaultDamageComparisonState } from '@/lib/damage-comparison-state';
@@ -37,7 +38,7 @@ export function useInspectDamageState() {
   const comparison = inspectDamageState.comparison ?? getDefaultDamageComparisonState();
 
   const updateInspectDamageState = useCallback(
-    (patch: Partial<InspectDamageState>) => {
+    (patch: InspectDamageStatePatch) => {
       updateSession({
         inspect_damage_state: mergeInspectDamageState(
           session?.inspect_damage_state,
