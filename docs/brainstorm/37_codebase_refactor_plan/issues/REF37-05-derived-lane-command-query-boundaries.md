@@ -46,7 +46,7 @@ Lock down the derived-data lane boundaries with behavior tests and any small nam
 - [x] `IMPLEMENTATION_MAP.md` is updated if any task-kind or response-shaping contract changes.
 - [x] `docs/tasks/REF37-05.md` records behavior changed, interfaces changed, and tests added.
 - [x] GitNexus impact analysis is run before editing derived-data symbols.
-- [ ] Focused tests pass.
+- [x] Focused tests pass.
 
 ## Blocked By
 
