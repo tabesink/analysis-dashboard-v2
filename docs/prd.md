@@ -10,7 +10,7 @@
 
 A full-stack data analytics dashboard for uploading, filtering, and visualizing automotive suspension component test data. Engineers upload CSV or RSP test files, apply multi-dimensional filters, and view downsampled time-series plots in a configurable grid or interactive canvas. Admins manage users and permissions, filter options, custom fields, and load-data portability between hosts.
 
-Production deployments use a Docker release bundle with a single-origin LAN proxy. The live database is one DuckDB file; admin export/import moves **load data only** (not user accounts or admin configuration).
+Production deployments use a Docker release bundle with a single-origin LAN proxy. The live database is one DuckDB file; admins can export load data for portability between managed databases.
 
 ---
 
@@ -20,7 +20,7 @@ Production deployments use a Docker release bundle with a single-origin LAN prox
 |------|--------------|--------------|
 | **Read-only user** | No (`can_write=false`) | Login/register, browse Dashboard, apply filters, view plots, manage own session. Database and Edit Filters nav items are disabled. |
 | **Writer** (`can_write=true`) | Yes | All read-only capabilities + upload CSV/RSP with channel maps, edit event metadata (own rows or as permitted), manage channel maps, scope delete for owned program/version groups. |
-| **Admin** | Always | All writer capabilities + user management (`/settings/users`), filter option administration, custom fields, per-event **Status** updates, load-data export/import, purge soft-deleted data. |
+| **Admin** | Always | All writer capabilities + user management (`/settings/users`), filter option administration, custom fields, per-event **Status** updates, load-data export, database create/connect/delete, purge soft-deleted data. |
 
 Self-service **registration** creates read-only accounts by default. Admins grant write access per user on the Settings page.
 
@@ -53,13 +53,12 @@ Session Persistence
 Cross-User Refresh
   --> Authenticated clients poll GET /api/v1/sync/version
   --> When data_version increases, invalidate event catalogs, filters, program/version lists
-  --> Polling pauses during active database import
+  --> Polling pauses during active folder uploads
 
 Load-Data Portability (admin)
   --> Export: background Parquet ZIP (load-data tables only)
-  --> Import: stream ZIP, validate, confirm with typed IMPORT, staging DB swap on success
-  --> Target users, sessions, saved filters, audit log, and admin custom-field config preserved
-  --> Backup dashboard.db.bak created before replace
+  --> Import API endpoints are legacy compatibility stubs and return 410 Gone
+  --> Operators use export + create/connect workflow for managed database transitions
 ```
 
 ---
@@ -113,15 +112,15 @@ Load-Data Portability (admin)
 - Closed login: accounts must exist (admin-created or self-registered)
 - Route protection on frontend (redirect unauthenticated users to `/login`)
 - Backend guards: `get_current_user`, `require_admin`, `require_write_or_admin`
-- Admin-only: load-data export/import, user CRUD, filter option admin, custom field definitions, event Status field, purge
+- Admin-only: load-data export, database create/connect/delete, user CRUD, filter option admin, custom field definitions, event Status field, purge
 - Settings (`/settings/users`) and Changelog (`/changelog`) in app shell; version label shows client/server versions and live vs target DB schema version
 
 ### 4.6 Load-Data Portability
 
-- **Scope:** Move processed engineering data between hosts. Does **not** replace target users, sessions, saved filters, audit history, or admin custom-field configuration. Does **not** include pending channel-map artifacts or retained raw CSV/RSP files (DEC-062, DEC-063).
+- **Scope:** Export processed engineering data from the active managed database. Export artifacts are used with create/connect workflows; import is not a supported product operation.
 - **Export (admin):** Background job writes load-data tables to Parquet (ZSTD), generates `schema.sql` / `load.sql`, zips as `dashboard_export.zip`; client polls task status then downloads the ZIP.
-- **Import (admin):** ZIP streamed to disk in chunks; upload returns `upload_id` + validation; typed confirmation starts background import with phased progress (backup, load, finalize); loads into `dashboard.db.staging` then atomically swaps; cancel/close discards staged upload via API.
-- **API:** `POST /api/v1/export/database/parquet/export/start`, `GET .../parquet/task/{id}`, `GET .../parquet/download/{id}`, `POST .../parquet/upload`, `DELETE .../parquet/upload/{upload_id}`, `POST .../parquet/import/{upload_id}`, `GET .../database/info`
+- **Legacy import API:** `POST .../parquet/upload`, `DELETE .../parquet/upload/{upload_id}`, and `POST .../parquet/import/{upload_id}` remain compatibility stubs and return `410 Gone` with replacement guidance.
+- **API:** `POST /api/v1/export/database/parquet/export/start`, `GET .../parquet/task/{id}`, `GET .../parquet/download/{id}`, `GET .../database/info`
 - Schema metadata (`_schema_metadata`) included for compatibility checks
 - Optimistic concurrency: single-event metadata updates require `if_unmodified_since`; HTTP 409 when stale
 
@@ -139,7 +138,7 @@ See `docs/notes/database.md` and `Deployment/README.md` for operator details.
 | Rate limit (upload) | 10 req/min | settings.yaml |
 | Rate limit (render) | 20 req/min | settings.yaml |
 | Rate limit (admin) | 30 req/min | settings.yaml |
-| Max upload size (CSV/RSP/import ZIP) | 61440 MB (60 GiB) | settings.yaml + proxy |
+| Max upload size (CSV/RSP and large payloads) | 61440 MB (60 GiB) | settings.yaml + proxy |
 | Max events per query | 500 | settings.yaml |
 | Filter options cache TTL | 3600s | settings.yaml |
 | Program IDs cache TTL | 60s | settings.yaml |
@@ -164,7 +163,6 @@ See `docs/notes/database.md` and `Deployment/README.md` for operator details.
 - CORS restricted to configured origins
 - `ADMIN_SECRET` bootstraps initial admin on first startup
 - Rate limiting with burst allowance per endpoint category
-- ZIP path traversal rejected on import
 - Ownership checks on metadata updates and scope deletes
 
 ---

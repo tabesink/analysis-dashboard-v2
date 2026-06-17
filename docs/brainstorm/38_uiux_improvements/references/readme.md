@@ -1,4 +1,0 @@
-- CRITICAL: dashboard route plotting cards (these maybe custom implementations so take care when modifying these cards); surgically modify components
-- Database settings dialogue is prime candidate for new style enforcement
-- CRITICAL: custom tables are used, so take care when modifying these
-- Step through critical design gates with user to ensure UI changes are made in the desired direction   

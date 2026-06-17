@@ -2,12 +2,13 @@
  * Derived-data task API functions.
  */
 
-import { APIError, fetchJsonGet, getApiBaseUrl } from './client';
+import { APIError, fetchJsonGet, getApiBaseUrl, post } from './client';
 import {
   waitForTaskStatus,
   type TaskPollConnectionState,
 } from '@/lib/api/task-polling';
 import type { DerivedTaskStatusEvent } from '@/types/api';
+import type { UploadTaskCancelResponse } from '@/types/upload';
 
 const POLL_MS = 2000;
 const TASK_POLL_RETRY_WINDOW_MS = 3_600_000;
@@ -44,6 +45,9 @@ export const derivedDataApi = {
   getDerivedDataTaskStatus: async (taskId: string): Promise<DerivedTaskStatusEvent> =>
     fetchJsonGet(`${getApiBaseUrl()}/api/v1/dashboard/derived-data/task/${taskId}`),
 
+  cancelDerivedDataTask: (taskId: string): Promise<UploadTaskCancelResponse> =>
+    post<UploadTaskCancelResponse>(`/api/v1/dashboard/derived-data/task/${taskId}/cancel`, {}),
+
   waitForDerivedDataTask: async (
     taskId: string,
     onUpdate?: (event: DerivedTaskStatusEvent) => void,
@@ -51,7 +55,10 @@ export const derivedDataApi = {
   ): Promise<DerivedTaskStatusEvent> => {
     return waitForTaskStatus({
       fetchStatus: () => derivedDataApi.getDerivedDataTaskStatus(taskId),
-      isTerminal: (event) => event.status === 'failed' || event.status === 'completed',
+      isTerminal: (event) =>
+        event.status === 'failed' ||
+        event.status === 'completed' ||
+        event.status === 'cancelled',
       onUpdate,
       onConnectionStateChange,
       pollMs: POLL_MS,

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { derivedDataApi } from '@/lib/api/derived-data';
+import { post } from '@/lib/api/client';
 
 vi.mock('./client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./client')>();
@@ -8,6 +9,7 @@ vi.mock('./client', async (importOriginal) => {
   return {
     ...actual,
     getApiBaseUrl: () => 'http://localhost:8000',
+    post: vi.fn(),
   };
 });
 
@@ -120,5 +122,48 @@ describe('derivedDataApi', () => {
 
     await expect(task).resolves.toMatchObject({ status: 'completed' });
     expect(connectionStates).toContain('Lost contact with the server. Retrying…');
+  });
+
+  it('posts derived-data cancel request and returns acknowledgement', async () => {
+    vi.mocked(post).mockResolvedValue({
+      task_id: 'task-cancel-derived',
+      status: 'cancelling',
+      terminal_state: null,
+      task_kind: 'channel_reprocess',
+      cancel_requested_at: '2026-01-01T00:00:00',
+    });
+
+    const result = await derivedDataApi.cancelDerivedDataTask('task-cancel-derived');
+
+    expect(post).toHaveBeenCalledWith(
+      '/api/v1/dashboard/derived-data/task/task-cancel-derived/cancel',
+      {},
+    );
+    expect(result.task_id).toBe('task-cancel-derived');
+    expect(result.status).toBe('cancelling');
+    expect(result.task_kind).toBe('channel_reprocess');
+  });
+
+  it('treats cancelled derived task as terminal', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            task_id: 'task-cancelled-derived',
+            task_kind: 'damage_calculation',
+            status: 'cancelled',
+            phase: 'cancelled',
+            completed_events: 2,
+            total_events: 10,
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      ),
+    );
+
+    await expect(derivedDataApi.waitForDerivedDataTask('task-cancelled-derived')).resolves.toMatchObject({
+      status: 'cancelled',
+    });
   });
 });

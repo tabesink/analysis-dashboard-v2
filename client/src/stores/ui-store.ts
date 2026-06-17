@@ -13,9 +13,6 @@ interface UIState {
   activeTab: 'grid' | 'interactive';
   setActiveTab: (tab: 'grid' | 'interactive') => void;
 
-  databaseImportInProgress: boolean;
-  setDatabaseImportInProgress: (inProgress: boolean) => void;
-
   folderUploadInProgress: boolean;
   setFolderUploadInProgress: (inProgress: boolean) => void;
 
@@ -32,10 +29,6 @@ export const useUIStore = create<UIState>((set) => ({
 
   activeTab: 'grid',
   setActiveTab: (tab) => set({ activeTab: tab }),
-
-  databaseImportInProgress: false,
-  setDatabaseImportInProgress: (inProgress) =>
-    set({ databaseImportInProgress: inProgress }),
 
   folderUploadInProgress: false,
   setFolderUploadInProgress: (inProgress) =>

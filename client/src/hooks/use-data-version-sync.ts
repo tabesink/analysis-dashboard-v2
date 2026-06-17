@@ -3,13 +3,14 @@
 import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { authApi } from '@/lib/api/auth';
 import { syncApi } from '@/lib/api/sync';
 import { DATABASE_DATA_INVALIDATION_KEYS } from '@/lib/metadata-save-cache';
 import { useInspectDamageResultsStore } from '@/stores/inspect-damage-results-store';
 import { useAuthStore } from '@/stores/auth-store';
-import { useUIStore } from '@/stores/ui-store';
 
 const SYNC_POLL_INTERVAL_MS = 10_000;
+const PRESENCE_HEARTBEAT_INTERVAL_MS = 30_000;
 
 function invalidateSyncSensitiveQueries(queryClient: ReturnType<typeof useQueryClient>) {
   DATABASE_DATA_INVALIDATION_KEYS.filter((key) => key !== 'sync-version').forEach(
@@ -22,17 +23,14 @@ function invalidateSyncSensitiveQueries(queryClient: ReturnType<typeof useQueryC
 export function useDataVersionSync() {
   const queryClient = useQueryClient();
   const authStatus = useAuthStore((s) => s.status);
-  const databaseImportInProgress = useUIStore((s) => s.databaseImportInProgress);
-  const folderUploadInProgress = useUIStore((s) => s.folderUploadInProgress);
-  const pauseVersionSync = databaseImportInProgress || folderUploadInProgress;
   const lastSeenVersionRef = useRef<number | null>(null);
 
   const { data } = useQuery({
     queryKey: ['sync-version'],
     queryFn: syncApi.getVersion,
-    enabled: authStatus === 'authenticated' && !pauseVersionSync,
+    enabled: authStatus === 'authenticated',
     staleTime: 0,
-    refetchInterval: pauseVersionSync ? false : SYNC_POLL_INTERVAL_MS,
+    refetchInterval: SYNC_POLL_INTERVAL_MS,
     refetchIntervalInBackground: true,
     retry: false,
   });
@@ -41,6 +39,42 @@ export function useDataVersionSync() {
     if (authStatus !== 'authenticated') {
       lastSeenVersionRef.current = null;
     }
+  }, [authStatus]);
+
+  useEffect(() => {
+    if (authStatus !== 'authenticated') {
+      return;
+    }
+
+    const sendHeartbeat = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      try {
+        const activeArea =
+          typeof window !== 'undefined' ? window.location.pathname : undefined;
+        await authApi.heartbeatPresence(activeArea);
+      } catch {
+        // Best-effort signal only; do not interrupt data-sync flow on heartbeat failures.
+      }
+    };
+
+    void sendHeartbeat();
+    const intervalId = window.setInterval(() => {
+      void sendHeartbeat();
+    }, PRESENCE_HEARTBEAT_INTERVAL_MS);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void sendHeartbeat();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [authStatus]);
 
   useEffect(() => {

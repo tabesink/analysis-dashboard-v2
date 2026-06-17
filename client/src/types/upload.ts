@@ -56,7 +56,7 @@ export interface UploadTaskStartResponse {
 
 export interface UploadTaskEvent {
   task_id: string;
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  status: 'queued' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
   terminal_state?: 'completed' | 'failed' | 'cancelled';
   task_owner_user_id?: string;
   task_kind?: string;
@@ -66,10 +66,36 @@ export interface UploadTaskEvent {
   total_events: number;
   current_event?: string;
   progress_message?: string | null;
+  started_at?: string | null;
+  cancel_requested_at?: string | null;
+  finished_at?: string | null;
+  last_heartbeat_at?: string | null;
+  runner_id?: string | null;
   error?: string;
-  error_details?: Record<string, unknown>;
+  error_details?: UploadTaskErrorDetails;
   result_summary?: string;
   result?: UploadResponse;
+}
+
+export interface UploadTaskDiscoveryResponse {
+  active_tasks: UploadTaskEvent[];
+  recent_terminal_tasks: UploadTaskEvent[];
+}
+
+export interface UploadTaskCancelResponse {
+  task_id: string;
+  status: 'queued' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
+  terminal_state?: 'completed' | 'failed' | 'cancelled' | null;
+  task_kind: 'folder_upload' | 'channel_reprocess' | 'damage_calculation';
+  cancel_requested_at?: string | null;
+}
+
+export interface UploadTaskErrorDetails {
+  cleanup_required?: boolean;
+  cleanup_candidate_event_count?: number;
+  retry_guidance?: string;
+  cleanup_endpoint?: string;
+  [key: string]: unknown;
 }
 
 export type UploadProgressPhase = 'upload_received' | 'converting' | 'validating' | 'writing';
@@ -121,6 +147,15 @@ export interface DeleteProgramVersionScopeResponse {
   deleted_files: number;
   skipped_files: string[];
   owner_user_ids: string[];
+}
+
+export interface FailedUploadCleanupResponse {
+  deleted: boolean;
+  task_id: string;
+  deleted_event_ids: string[];
+  deleted_event_count: number;
+  deleted_artifact_count: number;
+  skipped_artifact_paths: string[];
 }
 
 // ============================================================================

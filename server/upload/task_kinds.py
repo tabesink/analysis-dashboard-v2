@@ -6,8 +6,9 @@ TASK_KIND_FOLDER_UPLOAD = "folder_upload"
 TASK_KIND_CHANNEL_REPROCESS = "channel_reprocess"
 TASK_KIND_DAMAGE_CALCULATION = "damage_calculation"
 TASK_KIND_DATABASE_EXPORT = "database_export"
-
-REMOVED_TASK_KIND_DATABASE_IMPORT = "database_import"
+TASK_KIND_DATABASE_CREATE = "database_create"
+TASK_KIND_DATABASE_SWITCH = "database_switch"
+TASK_KIND_DATABASE_DELETE = "database_delete"
 
 DERIVED_DATA_TASK_KINDS = frozenset(
     {
@@ -16,11 +17,19 @@ DERIVED_DATA_TASK_KINDS = frozenset(
     }
 )
 
-ACTIVE_TASK_STATUSES = frozenset({"queued", "running"})
+ACTIVE_TASK_STATUSES = frozenset({"queued", "running", "cancelling"})
 
 ACTIVE_UPLOAD_TASK_KINDS = frozenset(
     {
         TASK_KIND_FOLDER_UPLOAD,
         *DERIVED_DATA_TASK_KINDS,
+    }
+)
+
+DATABASE_EXCLUSIVE_OPERATION_KINDS = frozenset(
+    {
+        TASK_KIND_DATABASE_CREATE,
+        TASK_KIND_DATABASE_SWITCH,
+        TASK_KIND_DATABASE_DELETE,
     }
 )

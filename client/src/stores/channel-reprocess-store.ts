@@ -23,7 +23,7 @@ export type ChannelReprocessWizardStep = "progress" | "summary";
 
 export interface ChannelReprocessScopeState {
   taskId: string;
-  status: "running" | "completed" | "failed";
+  status: "running" | "cancelling" | "completed" | "failed" | "cancelled";
   modalOpen: boolean;
   wizardStep: ChannelReprocessWizardStep;
   progress: number;
@@ -53,6 +53,7 @@ async function pollChannelReprocessTask(
       const mapped = mapDerivedTaskProgress(event);
       helpers.updateScope((current) => ({
         ...current,
+        status: event.status === "cancelling" ? "cancelling" : current.status,
         progress: mapped.progress,
         progressPhase: mapped.progressPhase,
         progressMessage: mapped.progressMessage,
@@ -68,9 +69,15 @@ async function pollChannelReprocessTask(
     });
 
     const completionResult = buildChannelReprocessCompletionResult(finalEvent);
+    const terminalStatus =
+      finalEvent.status === "failed"
+        ? "failed"
+        : finalEvent.status === "cancelled"
+          ? "cancelled"
+          : "completed";
     helpers.updateScope((current) => ({
       ...current,
-      status: finalEvent.status === "failed" ? "failed" : "completed",
+      status: terminalStatus,
       wizardStep: "summary",
       progress: 100,
       progressMessage: completionResult.message,

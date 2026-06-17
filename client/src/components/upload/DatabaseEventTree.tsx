@@ -496,7 +496,7 @@ export function DatabaseEventTree({
                                         return (
                                           <span
                                             key={col.key}
-                                            className="shrink-0 text-xs text-foreground/80 truncate px-2 text-center"
+                                            className="shrink-0 text-xs text-muted-foreground truncate px-2 text-center"
                                             style={{ width: widthOf(col.key) }}
                                             title={value}
                                           >

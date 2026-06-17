@@ -215,19 +215,26 @@ def _reconcile_stale_active_upload_tasks(conn: Any) -> None:
     if not required:
         return
 
-    stale_count = conn.execute(
-        """
+    status_placeholders = ", ".join("?" for _ in ACTIVE_TASK_STATUSES)
+    stale_count_query = f"""
         SELECT COUNT(*)
         FROM upload_tasks
         WHERE task_kind IN (?, ?, ?)
-          AND status IN (?, ?)
-        """,
+          AND status IN ({status_placeholders})
+    """
+    stale_count = conn.execute(
+        stale_count_query,
         [*ACTIVE_UPLOAD_TASK_KINDS, *ACTIVE_TASK_STATUSES],
     ).fetchone()
     if stale_count is None or int(stale_count[0]) == 0:
         return
 
-    conn.execute(
+    finished_at_assignment = (
+        ", finished_at = CURRENT_TIMESTAMP"
+        if _column_exists(conn, "upload_tasks", "finished_at")
+        else ""
+    )
+    stale_update_query = (
         """
         UPDATE upload_tasks
         SET
@@ -241,9 +248,15 @@ def _reconcile_stale_active_upload_tasks(conn: Any) -> None:
                 ELSE error
             END,
             updated_at = CURRENT_TIMESTAMP
+        """
+        + finished_at_assignment
+        + f"""
         WHERE task_kind IN (?, ?, ?)
-          AND status IN (?, ?)
-        """,
+          AND status IN ({status_placeholders})
+        """
+    )
+    conn.execute(
+        stale_update_query,
         [*ACTIVE_UPLOAD_TASK_KINDS, *ACTIVE_TASK_STATUSES],
     )
 

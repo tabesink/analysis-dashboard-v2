@@ -114,6 +114,16 @@ export async function executeScopeDelete({
   } catch (error) {
     const message =
       error instanceof Error ? error.message : 'Failed to delete program/version scope';
+    if (message.includes('Request Cancelled')) {
+      return {
+        success: false,
+        deletedEventCount,
+        deletedArtifactCount,
+        scopeCount: plan.summary.scopeCount,
+        errorMessage:
+          'Delete request timed out while the server was still processing. Wait a moment, refresh datasets, and verify whether deletion completed.',
+      };
+    }
     return {
       success: false,
       deletedEventCount,

@@ -17,6 +17,13 @@ function readCounts(result: DerivedTaskStatusEvent): ChannelReprocessResultCount
 export function buildChannelReprocessCompletionResult(
   event: DerivedTaskStatusEvent,
 ): UploadCompletionResult {
+  if (event.status === 'cancelled') {
+    return {
+      success: false,
+      title: 'Channel reprocess cancelled',
+      message: event.error ?? 'Channel reprocess was cancelled safely.',
+    };
+  }
   if (event.status === 'failed') {
     return {
       success: false,

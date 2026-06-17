@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DamageComparisonAggregateOutput } from '@/features/inspect-damage/lib/build-damage-comparison-aggregates';
-import { buildDamage2DPlotSpec, computeSharedAbsoluteDamageYDomain } from '../lib/build-damage-2d-plot-spec';
+import { buildDamage2DPlotSpec, computeCumulativeDamageYDomain, computeSharedEventDamageYDomain } from '../lib/build-damage-2d-plot-spec';
 
 const aggregates: DamageComparisonAggregateOutput = {
   program_version: [],
@@ -243,7 +243,22 @@ describe('buildDamage2DPlotSpec', () => {
     });
   });
 
-  it('supports normalized mode and log damage scaling', () => {
+  it('applies per-channel max normalization on cumulative-by-channel in normalized mode', () => {
+    const spec = buildDamage2DPlotSpec({
+      plotType: 'cumulative_by_channel',
+      aggregates,
+      selectedChannelKeys: ['bj_x_force', 'bj_y_force'],
+      valueMode: 'normalized',
+      scaleMode: 'linear',
+    });
+
+    expect(spec.series[0]?.values).toEqual([10 / 30, 4 / 8]);
+    expect(spec.series[1]?.values).toEqual([1, 1]);
+    expect(spec.yScale.domain).toEqual([0, 1]);
+    expect(spec.yScale.tickFormat).toBe('percent');
+  });
+
+  it('supports normalized mode and log damage scaling on cumulative per-channel max values', () => {
     const spec = buildDamage2DPlotSpec({
       plotType: 'cumulative_by_channel',
       aggregates,
@@ -253,9 +268,9 @@ describe('buildDamage2DPlotSpec', () => {
     });
 
     expect(spec.emptyState).toBeNull();
-    expect(spec.series[0]?.values[0]).toBeCloseTo(Math.log10(1 + 0.5));
-    expect(spec.series[1]?.values[0]).toBeCloseTo(Math.log10(1 + 0.6));
-    expect(spec.yScale.domain[1]).toBeCloseTo(Math.log10(1 + 0.6));
+    expect(spec.series[0]?.values[0]).toBeCloseTo(Math.log10(1 + 10 / 30));
+    expect(spec.series[1]?.values[0]).toBeCloseTo(Math.log10(1 + 1));
+    expect(spec.yScale.domain[1]).toBeCloseTo(Math.log10(1 + 1));
     expect(spec.yScale.tickFormat).toBe('log');
     expect(spec.title).toBe('Cumulative Damage by Channel');
     expect(spec.subtitle).toBe('');
@@ -455,7 +470,7 @@ describe('buildDamage2DPlotSpec', () => {
       title: 'No target event totals',
       description: 'The current selection does not have renderable target event totals.',
     });
-    expect(spec.warnings).toContain('No target event aggregate rows were found for the current filters.');
+    expect(spec.warnings).toEqual([]);
     expect(spec.series).toEqual([]);
   });
 
@@ -474,7 +489,7 @@ describe('buildDamage2DPlotSpec', () => {
     });
     expect(spec.series).toEqual([]);
     expect(spec.xCategories).toEqual([]);
-    expect(spec.warnings).toContain('No selected channels were provided.');
+    expect(spec.warnings).toEqual([]);
   });
 
   it('returns a renderable empty state when aggregates are missing', () => {
@@ -490,7 +505,7 @@ describe('buildDamage2DPlotSpec', () => {
       title: 'No comparison data available',
       description: 'Cumulative comparison values appear once comparison aggregates are available.',
     });
-    expect(spec.warnings).toContain('Comparison aggregates are unavailable.');
+    expect(spec.warnings).toEqual([]);
   });
 
   it('builds signed target-delta values around a zero baseline', () => {
@@ -569,7 +584,7 @@ describe('buildDamage2DPlotSpec', () => {
     expect(spec.warnings.join(' ')).toContain('Low-reference channels');
   });
 
-  it('computes a shared y-axis domain from cumulative and absolute-by-event maxima', () => {
+  it('uses independent cumulative y-domain and shared event y-domain across datasets', () => {
     const baseInput = {
       aggregates: eventAggregates,
       selectedChannelKeys: ['bj_y_force', 'bj_x_force'],
@@ -580,27 +595,29 @@ describe('buildDamage2DPlotSpec', () => {
       selectedEventIds: [] as string[],
     };
 
-    expect(computeSharedAbsoluteDamageYDomain(baseInput)).toEqual([0, 30]);
+    expect(computeCumulativeDamageYDomain(baseInput)).toEqual([0, 30]);
+    expect(computeSharedEventDamageYDomain(baseInput)).toEqual([0, 12]);
 
-    const sharedYDomain = computeSharedAbsoluteDamageYDomain(baseInput);
+    const cumulativeYDomain = computeCumulativeDamageYDomain(baseInput);
+    const sharedEventYDomain = computeSharedEventDamageYDomain(baseInput);
     const cumulative = buildDamage2DPlotSpec({
       ...baseInput,
       plotType: 'cumulative_by_channel',
-      sharedYDomain,
+      cumulativeYDomain,
     });
     const reference = buildDamage2DPlotSpec({
       ...baseInput,
       plotType: 'reference_absolute_by_event',
-      sharedYDomain,
+      sharedEventYDomain,
     });
     const target = buildDamage2DPlotSpec({
       ...baseInput,
       plotType: 'target_absolute_by_event',
-      sharedYDomain,
+      sharedEventYDomain,
     });
 
     expect(cumulative.yScale.domain).toEqual([0, 30]);
-    expect(reference.yScale.domain).toEqual([0, 30]);
-    expect(target.yScale.domain).toEqual([0, 30]);
+    expect(reference.yScale.domain).toEqual([0, 12]);
+    expect(target.yScale.domain).toEqual([0, 12]);
   });
 });

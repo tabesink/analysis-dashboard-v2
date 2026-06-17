@@ -34,6 +34,7 @@ export function UploadOperationModal({
   progress,
   progressPhase,
   progressMessage,
+  isCancelling,
   completionResult,
   onCancelUpload,
   onCloseSummary,
@@ -130,8 +131,9 @@ export function UploadOperationModal({
               variant="outline"
               className="w-full sm:w-auto"
               onClick={() => onCancelUpload?.()}
+              disabled={Boolean(isCancelling)}
             >
-              Cancel
+              {isCancelling ? 'Cancelling safely...' : 'Cancel'}
             </Button>
           ) : (
             <span className="hidden sm:block sm:flex-1" />

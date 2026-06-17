@@ -2,7 +2,7 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 
 from server.dependencies import (
     AuthServiceDep,
@@ -19,10 +19,18 @@ from server.exceptions import (
     ValidationError,
 )
 from server.models.auth import (
+    ActivePresenceResponse,
     ChangePasswordRequest,
     CurrentUserResponse,
     LoginRequest,
+    PresenceHeartbeatRequest,
+    PresenceHeartbeatResponse,
     RegisterRequest,
+)
+from server.services.active_presence import (
+    ACTIVE_PRESENCE_TTL_SECONDS,
+    heartbeat_user_presence,
+    remove_user_presence,
 )
 from server.utils.logging import get_audit_logger
 
@@ -89,11 +97,21 @@ async def login(
 
     user["token_version"] = auth_service.rotate_user_session(user["id"])
     _set_auth_cookie(response, settings, auth_service, user)
-    db.log_audit(
+    audit_logged = db.try_log_audit(
         action="AUTH_LOGIN_SUCCESS",
         user_id=user["id"],
         details={"username": user["username"], "role": user["role"]},
+        lock_timeout_seconds=0.05,
     )
+    if not audit_logged:
+        logger.warning(
+            "auth login audit skipped due dashboard database contention",
+            extra={
+                "event": "login_audit_skipped",
+                "user_id": user["id"],
+                "username": user["username"],
+            },
+        )
     audit_log.info(
         "login success",
         extra={
@@ -203,6 +221,7 @@ async def logout(
 ) -> None:
     """Clear authentication cookie."""
     if user is not None:
+        remove_user_presence(user["id"])
         auth_service.rotate_user_session(user["id"])
         db.log_audit(
             action="AUTH_LOGOUT",
@@ -234,3 +253,30 @@ async def me(user: CurrentUserDep, user_service: UserServiceDep) -> CurrentUserR
             detail="Authentication required",
         )
     return _to_response(fresh)
+
+
+@router.post("/presence/heartbeat", response_model=PresenceHeartbeatResponse)
+async def heartbeat_presence(
+    payload: PresenceHeartbeatRequest,
+    user: CurrentUserDep,
+    request: Request,
+) -> PresenceHeartbeatResponse:
+    """Record lightweight active presence for admission guards."""
+    active_database = request.app.state.db.db_path.name
+    record = heartbeat_user_presence(
+        user_id=user["id"],
+        username=user["username"],
+        active_database=active_database,
+        active_area=payload.active_area,
+    )
+    return PresenceHeartbeatResponse(
+        active_database=active_database,
+        expires_in_seconds=ACTIVE_PRESENCE_TTL_SECONDS,
+        record=ActivePresenceResponse(
+            user_id=record.user_id,
+            username=record.username,
+            active_database=record.active_database,
+            active_area=record.active_area,
+            last_seen_at=record.last_seen_at,
+        ),
+    )

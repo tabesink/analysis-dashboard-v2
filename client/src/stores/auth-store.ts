@@ -8,12 +8,6 @@ import {
 } from '@/lib/api/auth';
 import { clearStoredSessionIdentity } from '@/lib/session/session-identity';
 import { ensureUserSession } from '@/lib/session/ensure-user-session';
-import { useUIStore } from '@/stores/ui-store';
-
-function shouldDeferAuthRedirect(): boolean {
-  const { databaseImportInProgress, folderUploadInProgress } = useUIStore.getState();
-  return databaseImportInProgress || folderUploadInProgress;
-}
 
 type AuthStatus = 'idle' | 'loading' | 'authenticated' | 'unauthenticated';
 
@@ -30,6 +24,7 @@ interface AuthState {
 }
 
 let bootstrapAbortController: AbortController | null = null;
+const TRANSIENT_AUTH_ERROR_STATUSES = new Set([0, 499, 502, 503, 504]);
 
 function cancelAuthBootstrap(): void {
   bootstrapAbortController?.abort();
@@ -40,6 +35,10 @@ function clearClientSessionStorage(): void {
   clearStoredSessionIdentity();
 }
 
+function isTransientBootstrapError(error: unknown): boolean {
+  return error instanceof APIError && TRANSIENT_AUTH_ERROR_STATUSES.has(error.status);
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   status: 'idle',
@@ -47,6 +46,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     cancelAuthBootstrap();
     const controller = new AbortController();
     bootstrapAbortController = controller;
+    const previous = get();
     set({ status: 'loading' });
     try {
       const user = await authApi.me({
@@ -57,7 +57,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ user, status: 'authenticated' });
     } catch (error) {
       if (controller.signal.aborted) return;
-      if (error instanceof APIError && error.status === 499) return;
+      if (isTransientBootstrapError(error)) {
+        if (previous.status === 'authenticated' && previous.user) {
+          set({ user: previous.user, status: 'authenticated' });
+          return;
+        }
+        set({ user: null, status: 'idle' });
+        return;
+      }
       const { status, user } = get();
       if (status === 'authenticated' && user) {
         return;
@@ -105,8 +112,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user: null, status: 'unauthenticated' });
     if (
       typeof window !== 'undefined' &&
-      window.location.pathname !== '/login' &&
-      !shouldDeferAuthRedirect()
+      window.location.pathname !== '/login'
     ) {
       window.location.replace('/login');
     }

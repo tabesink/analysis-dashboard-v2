@@ -47,6 +47,28 @@ function findDataStartIndex(lines: string[]): number {
   return -1;
 }
 
+export function formatCsvPreviewCellValue(
+  value: string,
+  columnIndex: number,
+  dropDecimalsFromColumn?: number,
+): string {
+  if (dropDecimalsFromColumn == null || columnIndex < dropDecimalsFromColumn) {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return value;
+  }
+
+  const numeric = Number(trimmed);
+  if (!Number.isFinite(numeric)) {
+    return value;
+  }
+
+  return String(Math.trunc(numeric));
+}
+
 export function parseCsvPreviewLines(lines: string[]): CsvPreviewTableData | null {
   if (lines.length === 0) {
     return null;

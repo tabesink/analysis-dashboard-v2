@@ -31,7 +31,7 @@ export function ComparisonPlotInputsSection({
   return (
     <section className="space-y-3" aria-label="Plot Inputs">
       <div className="space-y-1">
-        <h3 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-foreground/75">
+        <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
           Plot Inputs
         </h3>
       </div>
@@ -39,7 +39,7 @@ export function ComparisonPlotInputsSection({
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-medium text-muted-foreground">Channels</span>
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {selectedChannelKeys.length}/{DAMAGE_CHANNELS.length}
           </span>
         </div>
@@ -53,7 +53,7 @@ export function ComparisonPlotInputsSection({
                 size="sm"
                 variant={selected ? 'secondary' : 'outline'}
                 className={cn(
-                  'h-6 gap-1 px-2 text-[10px]',
+                  'h-6 gap-1 px-2 text-xs',
                   !selected &&
                     'border-dashed border-muted-foreground/40 bg-transparent text-muted-foreground/90 opacity-80 line-through decoration-muted-foreground/70 decoration-1',
                 )}
@@ -80,7 +80,7 @@ export function ComparisonPlotInputsSection({
             type="button"
             size="sm"
             variant={valueMode === 'absolute' ? 'secondary' : 'ghost'}
-            className={cn('h-6 flex-1 px-2 text-[11px]')}
+            className={cn('h-6 flex-1 px-2 text-xs')}
             onClick={() => onValueModeChange('absolute')}
           >
             Absolute
@@ -89,7 +89,7 @@ export function ComparisonPlotInputsSection({
             type="button"
             size="sm"
             variant={valueMode === 'normalized' ? 'secondary' : 'ghost'}
-            className={cn('h-6 flex-1 px-2 text-[11px]')}
+            className={cn('h-6 flex-1 px-2 text-xs')}
             onClick={() => onValueModeChange('normalized')}
           >
             Normalized
@@ -99,10 +99,10 @@ export function ComparisonPlotInputsSection({
 
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-foreground/75">
+          <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
             Threshold Events
           </h3>
-          <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+          <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
             {eventThreshold}
           </span>
         </div>
@@ -116,7 +116,7 @@ export function ComparisonPlotInputsSection({
           className="w-full accent-primary"
           aria-label="Threshold Events"
         />
-        <div className="flex justify-between text-[10px] text-muted-foreground">
+        <div className="flex justify-between text-xs text-muted-foreground">
           <span>1</span>
           <span>5</span>
         </div>

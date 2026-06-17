@@ -109,7 +109,8 @@ export function TargetDeltaVsReferencePlotCard({
       }),
     [deltaRows, metricMode, spec.xCategories, values],
   );
-  const isEmpty = Boolean(spec.emptyState) || values.length === 0 || spec.xCategories.length === 0;
+  const hasChartData =
+    !spec.emptyState && values.length > 0 && spec.xCategories.length > 0;
   const metricValues = metricRows.map((row) => (row.metricUnavailable ? null : (row.metricValue ?? 0)));
   const [minDomain, maxDomain] = computeDeltaMetricDomain(metricValues, metricMode);
   const baselineValue = 1;
@@ -134,9 +135,6 @@ export function TargetDeltaVsReferencePlotCard({
       subtitle={spec.subtitle}
       isLoading={isLoading}
       error={error}
-      isEmpty={isEmpty}
-      emptyTitle={spec.emptyState?.title ?? 'No target delta data'}
-      emptyDescription={spec.emptyState?.description}
       className={cn(className ?? PLOT_CARD_BASE_CLASS)}
     >
       <div className={DAMAGE_PLOT_CHART_REGION_CLASS}>
@@ -207,7 +205,8 @@ export function TargetDeltaVsReferencePlotCard({
             {metricLabel}
           </text>
 
-          {spec.xCategories.map((channel, categoryIndex) => {
+          {hasChartData
+            ? spec.xCategories.map((channel, categoryIndex) => {
             const bandWidth = categoryBandWidth(spec.xCategories.length, padding);
             const barWidth = Math.max(6, bandWidth * 0.58);
             const x = padding.left + categoryIndex * bandWidth + (bandWidth - barWidth) / 2;
@@ -265,10 +264,11 @@ export function TargetDeltaVsReferencePlotCard({
                 </text>
               </g>
             );
-          })}
+          })
+            : null}
         </svg>
 
-        <PlotLegendOverlay items={legendItems} />
+        {hasChartData ? <PlotLegendOverlay items={legendItems} /> : null}
 
         {spec.warnings[0] ? (
           <p className="pointer-events-none absolute left-1 top-7 max-w-[70%] truncate rounded-md bg-amber-100/90 px-1.5 py-0.5 text-[9px] text-amber-800 shadow-sm">

@@ -4,10 +4,10 @@
 export function getStatusBadgeClassName(value: string | null | undefined): string {
   const v = (value ?? '').trim();
   if (v === 'Approved') {
-    return 'bg-green-100 text-green-700';
+    return 'bg-muted text-foreground';
   }
   if (v === 'Obsolete') {
-    return 'bg-red-100 text-red-700';
+    return 'bg-destructive/10 text-destructive';
   }
-  return 'bg-amber-100 text-amber-700';
+  return 'bg-muted text-muted-foreground';
 }

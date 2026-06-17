@@ -12,7 +12,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import ClientLayout from '@/components/layout/ClientLayout';
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
 import { useDataVersionSync } from '@/hooks/use-data-version-sync';
@@ -77,6 +77,9 @@ function trimQueryCache(client: QueryClient) {
 export function Providers({ children }: ProvidersProps) {
   const [queryClient] = useState(() => getQueryClient());
   const bootstrapAuth = useAuthStore((s) => s.bootstrap);
+  const authStatus = useAuthStore((s) => s.status);
+  const bootstrapRetryAttemptRef = useRef(0);
+  const previousAuthStatusRef = useRef(authStatus);
 
   useEffect(() => {
     const id = setInterval(() => trimQueryCache(queryClient), CACHE_CHECK_INTERVAL_MS);
@@ -84,8 +87,35 @@ export function Providers({ children }: ProvidersProps) {
   }, [queryClient]);
 
   useEffect(() => {
-    void bootstrapAuth();
-  }, [bootstrapAuth]);
+    const previousStatus = previousAuthStatusRef.current;
+    previousAuthStatusRef.current = authStatus;
+    if (authStatus === 'authenticated' || authStatus === 'unauthenticated') {
+      bootstrapRetryAttemptRef.current = 0;
+      if (
+        process.env.NODE_ENV !== 'production' &&
+        previousStatus !== authStatus
+      ) {
+        console.debug(`[AUTH-BOOTSTRAP] settled with status=${authStatus}`);
+      }
+      return;
+    }
+    if (authStatus !== 'idle') {
+      return;
+    }
+    const attempt = bootstrapRetryAttemptRef.current;
+    const delayMs = attempt === 0 ? 0 : Math.min(1000 * 2 ** attempt, 5000);
+    const timerId = window.setTimeout(() => {
+      if (process.env.NODE_ENV !== 'production') {
+        const retryCount = attempt + 1;
+        console.debug(
+          `[AUTH-BOOTSTRAP] retry #${retryCount} after ${delayMs}ms (status=${authStatus})`,
+        );
+      }
+      bootstrapRetryAttemptRef.current += 1;
+      void bootstrapAuth();
+    }, delayMs);
+    return () => window.clearTimeout(timerId);
+  }, [authStatus, bootstrapAuth]);
 
   return (
     <QueryClientProvider client={queryClient}>

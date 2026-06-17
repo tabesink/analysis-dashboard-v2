@@ -202,12 +202,6 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = Field(default=500)
     max_events_per_query: int = Field(default=200)
 
-    # DuckDB tuning for staging load-data import (Parquet COPY into dashboard.db.staging)
-    duckdb_import_memory_limit: str = Field(default="10GB")
-    duckdb_import_threads: int = Field(default=1, ge=1)
-    # Cap the live connection while import runs so staging can use most of the container budget
-    duckdb_live_memory_limit_during_import: str = Field(default="1GB")
-
     # Performance
     enable_performance_metrics: bool = Field(default=True)
 
@@ -339,12 +333,6 @@ def create_settings_from_yaml(yaml_path: Path | None = None) -> Settings:
             "log_dir": ("LOG_DIR", Path),
             "max_upload_size_mb": ("MAX_UPLOAD_SIZE_MB", int),
             "max_events_per_query": ("MAX_EVENTS_PER_QUERY", int),
-            "duckdb_import_memory_limit": ("DUCKDB_IMPORT_MEMORY_LIMIT", str),
-            "duckdb_import_threads": ("DUCKDB_IMPORT_THREADS", int),
-            "duckdb_live_memory_limit_during_import": (
-                "DUCKDB_LIVE_MEMORY_LIMIT_DURING_IMPORT",
-                str,
-            ),
         },
     )
     allow_insecure_cookies_env = os.getenv("ALLOW_INSECURE_COOKIES", "").strip().lower()

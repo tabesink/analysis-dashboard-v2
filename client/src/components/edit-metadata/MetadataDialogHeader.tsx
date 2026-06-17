@@ -24,7 +24,7 @@ function MetadataBarItem({
 }) {
   return (
     <div className="flex min-w-0 items-center gap-2 px-4 first:pl-0 last:pr-0">
-      <span className="shrink-0 text-sm text-muted-foreground">{label}</span>
+      <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
       {children}
     </div>
   );
@@ -65,11 +65,10 @@ export function MetadataDialogHeader({
     !trimmedStatusDraft && (eventsQuery.isLoading || eventsQuery.isFetching);
 
   return (
-    <header className="mb-5 shrink-0" data-testid="metadata-dialog-header">
-      <div className="bg-muted/40 px-4 py-3">
+    <div className="shrink-0 bg-muted/50 px-4 py-3" data-testid="metadata-dialog-header">
         <div className="flex flex-wrap items-center">
           <MetadataBarItem label="Program ID">
-            <span className="truncate text-sm font-medium text-foreground tabular-nums">
+            <span className="truncate text-sm font-medium font-mono text-foreground tabular-nums">
               {programId}
             </span>
           </MetadataBarItem>
@@ -77,7 +76,7 @@ export function MetadataDialogHeader({
           <Separator orientation="vertical" className="mx-1 hidden h-5 sm:block" decorative />
 
           <MetadataBarItem label="Version">
-            <span className="truncate text-sm font-medium text-foreground tabular-nums">
+            <span className="truncate text-sm font-medium font-mono text-foreground tabular-nums">
               {version}
             </span>
           </MetadataBarItem>
@@ -100,7 +99,6 @@ export function MetadataDialogHeader({
             )}
           </MetadataBarItem>
         </div>
-      </div>
-    </header>
+    </div>
   );
 }

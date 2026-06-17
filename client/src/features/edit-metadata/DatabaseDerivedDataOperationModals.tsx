@@ -7,13 +7,11 @@ import {
 } from '@/stores/metadata-edit-dialog-store';
 import {
   closeChannelReprocessSummary,
-  dismissChannelReprocessModal,
   type ChannelReprocessScope,
   useChannelReprocessStore,
 } from '@/stores/channel-reprocess-store';
 import {
   closeDamageCalculationSummary,
-  dismissDamageCalculationModal,
   useDamageCalculationStore,
 } from '@/stores/damage-calculation-store';
 import type { DamageCalculationScope } from '@/lib/damage-calculation-cache';
@@ -39,10 +37,6 @@ export function DatabaseDerivedDataOperationModals() {
             key={`channel-reprocess-${key}`}
             open={scopeState.modalOpen}
             onOpenChange={(open) => {
-              if (!open && scopeState.wizardStep === 'progress') {
-                dismissChannelReprocessModal(scope);
-                return;
-              }
               if (!open && scopeState.wizardStep === 'summary') {
                 closeChannelReprocessSummary(scope);
               }
@@ -53,7 +47,6 @@ export function DatabaseDerivedDataOperationModals() {
             progressPhase={scopeState.progressPhase}
             progressMessage={scopeState.progressMessage}
             completionResult={scopeState.completionResult}
-            onDismissProgress={() => dismissChannelReprocessModal(scope)}
             onCloseSummary={() => closeChannelReprocessSummary(scope)}
           />
         );
@@ -68,10 +61,6 @@ export function DatabaseDerivedDataOperationModals() {
               key={`damage-calculation-${key}`}
               open={scopeState.modalOpen}
               onOpenChange={(open) => {
-                if (!open && scopeState.wizardStep === 'progress') {
-                  dismissDamageCalculationModal(scope);
-                  return;
-                }
                 if (!open && scopeState.wizardStep === 'summary') {
                   closeDamageCalculationSummary(scope);
                 }
@@ -82,12 +71,11 @@ export function DatabaseDerivedDataOperationModals() {
               progressPhase={scopeState.progressPhase}
               progressMessage={scopeState.progressMessage}
               completionResult={scopeState.completionResult}
-              onDismissProgress={() => dismissDamageCalculationModal(scope)}
               onCloseSummary={() => closeDamageCalculationSummary(scope)}
               onPrimaryAction={() => {
                 openMetadataEditDialog(scope);
                 requestMetadataEditDialogSection('durability-schedule');
-                dismissDamageCalculationModal(scope);
+                closeDamageCalculationSummary(scope);
               }}
             />
           );

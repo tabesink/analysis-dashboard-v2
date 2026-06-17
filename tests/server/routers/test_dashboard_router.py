@@ -72,7 +72,7 @@ from tests.server.routers.test_upload_router import (
 )
 
 
-def test_derived_data_task_poll_is_creator_scoped(
+def test_derived_data_task_poll_forbids_unrelated_writer(
     auth_client: TestClient,
     auth_settings: Settings,
 ) -> None:
@@ -117,6 +117,231 @@ def test_derived_data_task_poll_is_creator_scoped(
     payload = allowed.json()
     assert payload["task_id"] == start["task_id"]
     assert payload["task_kind"] == "channel_reprocess"
+
+
+def test_derived_data_task_poll_allows_admin_for_non_creator_task(
+    auth_client: TestClient,
+) -> None:
+    _login_admin(auth_client)
+    owner = _create_writer(auth_client, "derived_task_admin_owner")
+    _logout(auth_client)
+
+    db = auth_client.app.state.db
+    db.insert_event(
+        event_id="event-derived-admin",
+        program_id="P-DERIVED-ADMIN",
+        version="V1",
+        uploaded_by_user_id=owner["id"],
+        status="Approved",
+    )
+    db.create_upload_task(
+        task_id="derived-admin-task",
+        created_by_user_id=owner["id"],
+        total_events=1,
+        task_kind="channel_reprocess",
+        phase="validating",
+        scope={"program_id": "P-DERIVED-ADMIN", "version": "V1"},
+    )
+    db.update_upload_task(
+        "derived-admin-task",
+        status="running",
+        phase="processing",
+    )
+
+    _login_admin(auth_client)
+    response = auth_client.get("/api/v1/dashboard/derived-data/task/derived-admin-task")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["task_id"] == "derived-admin-task"
+    assert payload["task_kind"] == "channel_reprocess"
+
+
+def test_derived_data_task_poll_allows_scope_owner_even_when_not_creator(
+    auth_client: TestClient,
+) -> None:
+    _login_admin(auth_client)
+    owner = _create_writer(auth_client, "derived_task_scope_owner")
+    creator = _create_writer(auth_client, "derived_task_scope_creator")
+    _logout(auth_client)
+
+    db = auth_client.app.state.db
+    db.insert_event(
+        event_id="event-derived-owner",
+        program_id="P-DERIVED-OWNER",
+        version="V1",
+        uploaded_by_user_id=owner["id"],
+        status="Approved",
+    )
+    db.create_upload_task(
+        task_id="derived-owner-task",
+        created_by_user_id=creator["id"],
+        total_events=1,
+        task_kind="damage_calculation",
+        phase="validating",
+        scope={"program_id": "P-DERIVED-OWNER", "version": "V1"},
+    )
+    db.update_upload_task(
+        "derived-owner-task",
+        status="running",
+        phase="calculating",
+    )
+
+    _login_writer(auth_client, "derived_task_scope_owner")
+    response = auth_client.get("/api/v1/dashboard/derived-data/task/derived-owner-task")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["task_id"] == "derived-owner-task"
+    assert payload["task_kind"] == "damage_calculation"
+
+
+def test_cancel_derived_task_scope_owner_can_mark_cancelling(
+    auth_client: TestClient,
+) -> None:
+    _login_admin(auth_client)
+    owner = _create_writer(auth_client, "derived_cancel_scope_owner")
+    creator = _create_writer(auth_client, "derived_cancel_scope_creator")
+    _logout(auth_client)
+
+    db = auth_client.app.state.db
+    db.insert_event(
+        event_id="event-derived-cancel-owner",
+        program_id="P-DERIVED-CANCEL-OWNER",
+        version="V1",
+        uploaded_by_user_id=owner["id"],
+        status="Approved",
+    )
+    db.create_upload_task(
+        task_id="derived-cancel-owner-task",
+        created_by_user_id=creator["id"],
+        total_events=1,
+        task_kind="channel_reprocess",
+        phase="processing",
+        scope={"program_id": "P-DERIVED-CANCEL-OWNER", "version": "V1"},
+    )
+    db.update_upload_task(
+        "derived-cancel-owner-task",
+        status="running",
+        phase="processing",
+    )
+
+    _login_writer(auth_client, "derived_cancel_scope_owner")
+    response = auth_client.post("/api/v1/dashboard/derived-data/task/derived-cancel-owner-task/cancel")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["task_id"] == "derived-cancel-owner-task"
+    assert payload["status"] == "cancelling"
+    assert payload["task_kind"] == "channel_reprocess"
+    assert payload["cancel_requested_at"] is not None
+
+
+def test_cancel_derived_task_admin_can_cancel_any_scope(
+    auth_client: TestClient,
+) -> None:
+    _login_admin(auth_client)
+    owner = _create_writer(auth_client, "derived_cancel_admin_owner")
+    _logout(auth_client)
+
+    db = auth_client.app.state.db
+    db.insert_event(
+        event_id="event-derived-cancel-admin",
+        program_id="P-DERIVED-CANCEL-ADMIN",
+        version="V1",
+        uploaded_by_user_id=owner["id"],
+        status="Approved",
+    )
+    db.create_upload_task(
+        task_id="derived-cancel-admin-task",
+        created_by_user_id=owner["id"],
+        total_events=2,
+        task_kind="damage_calculation",
+        phase="calculating",
+        scope={"program_id": "P-DERIVED-CANCEL-ADMIN", "version": "V1"},
+    )
+    db.update_upload_task("derived-cancel-admin-task", status="running", phase="calculating")
+
+    _login_admin(auth_client)
+    response = auth_client.post("/api/v1/upload/tasks/derived-cancel-admin-task/cancel")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["status"] == "cancelling"
+    assert payload["task_kind"] == "damage_calculation"
+
+
+def test_cancel_derived_task_hides_scope_from_unrelated_writer(
+    auth_client: TestClient,
+) -> None:
+    _login_admin(auth_client)
+    owner = _create_writer(auth_client, "derived_cancel_hidden_owner")
+    _create_writer(auth_client, "derived_cancel_hidden_other")
+    _logout(auth_client)
+
+    db = auth_client.app.state.db
+    db.insert_event(
+        event_id="event-derived-cancel-hidden",
+        program_id="P-DERIVED-CANCEL-HIDDEN",
+        version="V1",
+        uploaded_by_user_id=owner["id"],
+        status="Approved",
+    )
+    db.create_upload_task(
+        task_id="derived-cancel-hidden-task",
+        created_by_user_id=owner["id"],
+        total_events=1,
+        task_kind="channel_reprocess",
+        phase="processing",
+        scope={"program_id": "P-DERIVED-CANCEL-HIDDEN", "version": "V1"},
+    )
+    db.update_upload_task("derived-cancel-hidden-task", status="running", phase="processing")
+
+    _login_writer(auth_client, "derived_cancel_hidden_other")
+    response = auth_client.post("/api/v1/dashboard/derived-data/task/derived-cancel-hidden-task/cancel")
+
+    assert response.status_code == 404
+    refreshed = db.get_upload_task("derived-cancel-hidden-task")
+    assert refreshed is not None
+    assert refreshed["status"] == "running"
+    assert refreshed["cancel_requested_at"] is None
+
+
+def test_cancel_derived_task_terminal_status_is_idempotent(
+    auth_client: TestClient,
+) -> None:
+    _login_admin(auth_client)
+    owner = _create_writer(auth_client, "derived_cancel_terminal_owner")
+    _logout(auth_client)
+
+    db = auth_client.app.state.db
+    db.insert_event(
+        event_id="event-derived-cancel-terminal",
+        program_id="P-DERIVED-CANCEL-TERMINAL",
+        version="V1",
+        uploaded_by_user_id=owner["id"],
+        status="Approved",
+    )
+    db.create_upload_task(
+        task_id="derived-cancel-terminal-task",
+        created_by_user_id=owner["id"],
+        total_events=1,
+        task_kind="damage_calculation",
+        phase="completed",
+        scope={"program_id": "P-DERIVED-CANCEL-TERMINAL", "version": "V1"},
+    )
+    db.update_upload_task(
+        "derived-cancel-terminal-task",
+        status="completed",
+        phase="completed",
+    )
+
+    _login_writer(auth_client, "derived_cancel_terminal_owner")
+    response = auth_client.post("/api/v1/upload/tasks/derived-cancel-terminal-task/cancel")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["status"] == "completed"
+    assert payload["terminal_state"] == "completed"
+    assert payload["cancel_requested_at"] is None
 
 
 def test_upload_program_version_channel_map_starts_channel_reprocess_task(

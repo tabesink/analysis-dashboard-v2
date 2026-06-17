@@ -103,11 +103,15 @@ vi.mock('@/components/edit-metadata/EditMetadataPanel', () => ({
   EditMetadataPanel: ({
     scope,
     canWrite,
+    scopeAlert,
+    statusDraftValue,
     onDirtyChange,
     onStatusDraftChange,
   }: {
     scope: { programId: string; version: string };
     canWrite?: boolean;
+    scopeAlert?: React.ReactNode;
+    statusDraftValue?: string | null;
     onDirtyChange?: (isDirty: boolean) => void;
     onStatusDraftChange?: (status: string | null) => void;
   }) => {
@@ -115,6 +119,8 @@ vi.mock('@/components/edit-metadata/EditMetadataPanel', () => ({
     onStatusDraftChange?.('Draft');
     return (
       <div data-testid="edit-metadata-panel" data-can-write={String(canWrite ?? true)}>
+        {scopeAlert ? <div data-testid="metadata-panel-scope-alert">{scopeAlert}</div> : null}
+        {statusDraftValue ? <span data-testid="metadata-panel-status-draft">{statusDraftValue}</span> : null}
         {scope.programId}::{scope.version}
       </div>
     );
@@ -143,25 +149,7 @@ vi.mock('@/components/edit-metadata/AssignChannelsPanel', () => ({
 let mockScheduleDirty = false;
 
 vi.mock('@/components/edit-metadata/MetadataDialogHeader', () => ({
-  MetadataDialogHeader: ({
-    programId,
-    version,
-    statusDraftValue,
-  }: {
-    programId: string;
-    version: string;
-    statusDraftValue?: string | null;
-  }) => (
-    <header data-testid="metadata-dialog-header">
-      <h2>Event Details</h2>
-      <span>Program ID</span>
-      <span>{programId}</span>
-      <span>Version</span>
-      <span>{version}</span>
-      <span>Status</span>
-      <span>{statusDraftValue ?? 'rolled-up'}</span>
-    </header>
-  ),
+  MetadataDialogHeader: () => null,
 }));
 
 vi.mock('@/components/edit-metadata/DurabilitySchedulePanel', () => ({
@@ -223,7 +211,8 @@ describe('MetadataEditDialog', () => {
     expect(markup).toContain('data-testid="metadata-dialog-nav-edit-metadata"');
     expect(markup).toContain('data-testid="metadata-dialog-nav-assign-channels"');
     expect(markup).toContain('data-testid="metadata-dialog-nav-durability-schedule"');
-    expect(markup).toContain('Edit Metadata');
+    expect(markup).toContain('>Edit Metadata<');
+    expect(markup).toContain('border-b');
     expect(markup).toContain('Assign Channels');
     expect(markup).toContain('Assign Schedule');
     expect(markup).toContain('aria-label="Edit Metadata section"');
@@ -313,13 +302,8 @@ describe('MetadataEditDialog', () => {
     expect(markup).toContain('aria-label="Close metadata editor"');
     expect(markup).toContain('aria-label="Metadata editor sections"');
     expect(markup).toContain('Event Details for P1 V1');
-    expect(markup).toContain('data-testid="metadata-dialog-header"');
-    expect(markup).toContain('Event Details');
-    expect(markup).toContain('Program ID');
-    expect(markup).toContain('Version');
-    expect(markup).toContain('Status');
-    expect(markup).toContain('>P1<');
-    expect(markup).toContain('>V1<');
+    expect(markup).toContain('>Edit Metadata<');
+    expect(markup).not.toContain('data-testid="metadata-dialog-header"');
   });
 
   it('keeps Assign Channels reachable as a nav button without hiding Edit Metadata content by default', () => {

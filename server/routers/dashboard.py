@@ -1,6 +1,7 @@
 """Dashboard data endpoints."""
 
 import base64
+from datetime import datetime
 import json
 import logging
 import time
@@ -21,13 +22,16 @@ from server.dependencies import (
     get_current_user,
 )
 from server.services.dashboard_orchestration import (
+    can_access_derived_task_scope,
     parse_schedule_preview,
     require_uploaded_data_edit_permission,
     schedule_damage_extension,
     start_channel_reprocess_from_entries,
     start_channel_reprocess_from_yaml_upload,
 )
+from server.services.operation_admission import OperationAdmissionError
 from server.models.derived_data_task import DerivedTaskStartResponse, DerivedTaskStatusEvent
+from server.models.upload import UploadTaskCancelResponse
 from server.services.derived_data_task import build_derived_task_status_event
 from server.upload.task_kinds import DERIVED_DATA_TASK_KINDS
 from server.models.dashboard import (
@@ -77,6 +81,14 @@ from server.services.query import OptimisticConcurrencyError
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/dashboard", dependencies=[Depends(get_current_user)])
+
+
+def _cancel_requested_at_iso(value: object) -> str | None:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
 
 
 def _event_record_to_metadata(event: dict[str, Any]) -> EventMetadata:
@@ -966,6 +978,11 @@ async def save_program_version_channel_map(
             entries=[entry.model_dump() for entry in request.entries],
             user_id=write_user["id"],
         )
+    except OperationAdmissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.to_http_detail(),
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return DerivedTaskStartResponse(**result)
@@ -1006,6 +1023,11 @@ async def upload_program_version_channel_map(
             channel_map_content=channel_map_content,
             user_id=write_user["id"],
         )
+    except OperationAdmissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.to_http_detail(),
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return DerivedTaskStartResponse(**result)
@@ -1020,18 +1042,63 @@ async def get_derived_data_task(
     ingestion_service: IngestionServiceDep,
     current_user: CurrentUserDep,
 ) -> DerivedTaskStatusEvent:
-    """Poll a creator-scoped derived-data task."""
+    """Poll a derived-data task using admin-or-scope-owner authorization."""
     ingestion_service.db.delete_expired_upload_tasks()
-    row = ingestion_service.db.get_upload_task(
-        task_id,
-        created_by_user_id=current_user["id"],
-    )
+    row = ingestion_service.db.get_upload_task(task_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     task_kind = str(row.get("task_kind") or "")
     if task_kind not in DERIVED_DATA_TASK_KINDS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    if not can_access_derived_task_scope(
+        store=ingestion_service.db,
+        task_row=row,
+        user_id=current_user["id"],
+        role=current_user["role"],
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     return build_derived_task_status_event(task_id, row)
+
+
+@router.post(
+    "/derived-data/task/{task_id}/cancel",
+    response_model=UploadTaskCancelResponse,
+)
+async def cancel_derived_data_task(
+    task_id: str,
+    ingestion_service: IngestionServiceDep,
+    current_user: CurrentUserDep,
+) -> UploadTaskCancelResponse:
+    """Compatibility alias for derived-task cancel requests."""
+    db = ingestion_service.db
+    row = db.get_upload_task(task_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    task_kind = str(row.get("task_kind") or "")
+    if task_kind not in DERIVED_DATA_TASK_KINDS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    if not can_access_derived_task_scope(
+        store=db,
+        task_row=row,
+        user_id=current_user["id"],
+        role=current_user["role"],
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+
+    updated = db.request_upload_task_cancel(task_id)
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    status_value = str(updated.get("status") or "queued")
+    terminal_state = (
+        status_value if status_value in {"completed", "failed", "cancelled"} else None
+    )
+    return UploadTaskCancelResponse(
+        task_id=str(updated.get("task_id") or task_id),
+        status=status_value,
+        terminal_state=terminal_state,
+        task_kind=task_kind,
+        cancel_requested_at=_cancel_requested_at_iso(updated.get("cancel_requested_at")),
+    )
 
 
 @router.post(

@@ -125,6 +125,10 @@ const SHADE_ORDER: ColorShade[] = [100, 200, 300, 400, 500, 600, 700, 800, 900];
 // COLOR PICKER COMPONENT
 // ============================================================================
 
+/** Canonical trigger size/styles for inline tree and overlay swatches. */
+export const COLOR_SWATCH_TRIGGER_CLASS =
+  'box-border size-3 min-h-3 min-w-3 shrink-0 rounded-[2px] border border-black p-0 cursor-pointer';
+
 interface ColorPickerProps {
   value?: string;
   onChange?: (color: string) => void;
@@ -154,10 +158,7 @@ export function ColorPicker({ value = '#000000', onChange, className }: ColorPic
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={cn(
-            'h-4 w-4 rounded border border-border/30 cursor-pointer transition-all hover:scale-110',
-            className
-          )}
+          className={cn(COLOR_SWATCH_TRIGGER_CLASS, className)}
           style={{ backgroundColor: value }}
           aria-label="Pick color"
         />
@@ -167,7 +168,7 @@ export function ColorPicker({ value = '#000000', onChange, className }: ColorPic
           {COLOR_FAMILY_ORDER.map((family) => (
             <div key={family} className="flex items-center gap-1">
               {/* Color family label */}
-              <span className="w-14 text-caption text-muted-foreground truncate">
+              <span className="w-14 text-xs text-muted-foreground truncate">
                 {family}
               </span>
               {/* Shade swatches */}

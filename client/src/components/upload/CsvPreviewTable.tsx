@@ -3,7 +3,7 @@
 import type { CSSProperties } from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import { FileSpreadsheet } from 'lucide-react';
-import { parseCsvPreviewLines } from '@/lib/csv-preview-parse';
+import { formatCsvPreviewCellValue, parseCsvPreviewLines } from '@/lib/csv-preview-parse';
 import { cn } from '@/lib/utils';
 import { ColumnResizeHandle } from './ColumnResizeHandle';
 
@@ -41,6 +41,8 @@ export interface CsvPreviewTableProps {
   columnCount?: number;
   /** Placeholder header columns when preview and columnCount are both empty (channel-map editor). */
   fallbackColumnCount?: number;
+  /** Zero-based column index from which numeric cell values render without decimals. */
+  dropDecimalsFromColumn?: number;
 }
 
 export function CsvPreviewTable({
@@ -48,6 +50,7 @@ export function CsvPreviewTable({
   maxRows,
   columnCount = 0,
   fallbackColumnCount = 0,
+  dropDecimalsFromColumn,
 }: CsvPreviewTableProps) {
   const parsed = useMemo(() => parseCsvPreviewLines(previewLines), [previewLines]);
   const showHeaderGrid = maxRows != null;
@@ -138,7 +141,7 @@ export function CsvPreviewTable({
     >
       <div style={{ minWidth: totalRowWidth }}>
         <div className="sticky top-0 z-10 shrink-0 bg-card">
-          <div className="flex h-7 shrink-0 items-center border-b bg-muted/60 px-3 text-[11px] font-medium tabular-nums leading-none text-muted-foreground">
+          <div className="flex h-7 shrink-0 items-center border-b bg-muted/60 px-3 text-xs font-medium tabular-nums leading-none text-muted-foreground">
             {headers.map((_, columnIndex) => {
               const width = widthOf(columnIndex);
               return (
@@ -152,7 +155,7 @@ export function CsvPreviewTable({
               );
             })}
           </div>
-          <div className="flex h-8 shrink-0 items-center border-b bg-muted/40 px-3 text-[11px] font-semibold leading-none text-foreground/70">
+          <div className="flex h-8 shrink-0 items-center border-b bg-muted/40 px-3 text-xs font-semibold leading-none text-muted-foreground">
             {headers.map((header, columnIndex) => {
               const width = widthOf(columnIndex);
               const missingHeader = isMissingHeader(header);
@@ -193,16 +196,21 @@ export function CsvPreviewTable({
             className="flex h-8 shrink-0 items-center border-b px-3 transition-colors odd:bg-card even:bg-muted/10 hover:bg-muted/30"
           >
             {headers.map((_, columnIndex) => {
-              const value = row[columnIndex] ?? '';
+              const rawValue = row[columnIndex] ?? '';
+              const displayValue = formatCsvPreviewCellValue(
+                rawValue,
+                columnIndex,
+                dropDecimalsFromColumn,
+              );
               const width = widthOf(columnIndex);
               return (
                 <div
                   key={`cell-${rowIndex}-${columnIndex}`}
-                  className="min-w-0 px-2 text-right text-xs tabular-nums text-foreground/80"
+                  className="min-w-0 px-2 text-right text-xs tabular-nums text-muted-foreground"
                   style={flexFor(width)}
                 >
-                  <span className="block truncate" title={value}>
-                    {value}
+                  <span className="block truncate" title={displayValue}>
+                    {displayValue}
                   </span>
                 </div>
               );

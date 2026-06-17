@@ -1,7 +1,7 @@
 'use client';
 
 import { Separator } from '@/components/ui/separator';
-import { toast } from 'sonner';
+import { showShortInfoToast } from '@/lib/feedback/short-info-toast';
 import { LoadDataEventTreeSection } from './LoadDataSection';
 import type { DamageComparisonState, LoadDatasetSelectionState } from '@/types/damage-comparison';
 import type { EventMetadata } from '@/types/api';
@@ -127,7 +127,7 @@ export function ComparisonLoadDataSections({
       !selectedIdsEqual(selected_event_ids, normalizedSelectedEventIds)
     ) {
       const sideLabel = dataset === 'reference' ? 'Reference' : 'Target';
-      toast.info(
+      showShortInfoToast(
         `${sideLabel} can include one program/version scope at a time. Selection moved to the new scope.`,
       );
     }
@@ -139,7 +139,7 @@ export function ComparisonLoadDataSections({
   return (
     <>
       <LoadDataEventTreeSection
-        sectionTitle="Reference Load Data"
+        sectionTitle="Load Data (Reference)"
         selectedEventIds={comparison.reference.selected_event_ids}
         onSelectedEventIdsChange={(selected_event_ids) =>
           updateSelection('reference', selected_event_ids)
@@ -161,7 +161,7 @@ export function ComparisonLoadDataSections({
         <Separator className="bg-border/70" />
       </div>
       <LoadDataEventTreeSection
-        sectionTitle="Target Load Data"
+        sectionTitle="Load Data (Target)"
         selectedEventIds={comparison.target.selected_event_ids}
         onSelectedEventIdsChange={(selected_event_ids) =>
           updateSelection('target', selected_event_ids)

@@ -149,7 +149,7 @@ export function DamageEventTree({
         return (
           <span
             key={channelKey}
-            className="shrink-0 px-2 text-center tabular-nums text-xs text-black"
+            className="shrink-0 px-2 text-center text-xs leading-none tabular-nums text-black"
             style={{ width: widthOf(channelKey) }}
           >
             {displayValue}
@@ -218,7 +218,7 @@ export function DamageEventTree({
                     >
                       <div
                         className={cn(
-                          'flex items-center py-1.5 px-3 border-b hover:bg-muted/30 transition-colors',
+                          'flex min-h-9 items-center py-1.5 px-3 border-b hover:bg-muted/30 transition-colors',
                           versionRowIsProgramTail && suppressLastRowBorder && 'border-b-0',
                         )}
                       >
@@ -261,7 +261,7 @@ export function DamageEventTree({
                               <div
                                 key={event.event_id}
                                 className={cn(
-                                  'flex items-center py-1.5 px-3 border-b hover:bg-muted/30 transition-colors',
+                                  'flex h-7 shrink-0 items-center px-3 border-b hover:bg-muted/30 transition-colors leading-none',
                                   isProgramTailEvent && suppressLastRowBorder && 'border-b-0',
                                 )}
                               >
@@ -270,7 +270,7 @@ export function DamageEventTree({
                                   style={{ width: leafRowFirstCellWidth }}
                                 >
                                   <span
-                                    className="text-xs text-muted-foreground truncate"
+                                    className="truncate text-xs leading-none text-muted-foreground"
                                     title={displayName}
                                   >
                                     {displayName}
@@ -282,7 +282,7 @@ export function DamageEventTree({
                                     return (
                                       <span
                                         key={col.key}
-                                        className="shrink-0 text-xs text-foreground/80 truncate px-2 text-center"
+                                        className="shrink-0 truncate px-2 text-center text-xs leading-none text-muted-foreground"
                                         style={{ width: widthOf(col.key) }}
                                         title={value}
                                       >
@@ -293,7 +293,7 @@ export function DamageEventTree({
                                   {channelKeys.map((channelKey) => (
                                     <span
                                       key={channelKey}
-                                      className="shrink-0 px-2 text-center tabular-nums text-xs"
+                                      className="shrink-0 overflow-hidden px-2 text-center text-xs leading-none tabular-nums"
                                       style={{ width: widthOf(channelKey) }}
                                     >
                                       {renderChannelCell(event.event_id, channelKey)}

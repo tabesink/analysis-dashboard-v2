@@ -6,6 +6,7 @@ import json
 import logging
 import threading
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from server.services.damage_calculation_progress import calculating_load_history_damage_message
@@ -16,6 +17,7 @@ from server.services.schedule_damage_calculation import (
 )
 from server.services.schedule_damage_prerequisites import check_damage_prerequisites
 from server.services.schedule_damage_validation import validate_schedule_for_damage
+from server.services.operation_admission import assert_can_start_derived_task
 from server.upload.task_kinds import (
     DERIVED_DATA_TASK_KINDS,
     TASK_KIND_DAMAGE_CALCULATION,
@@ -98,6 +100,7 @@ class DamageCalculationTaskService:
         reuse_task_kinds: frozenset[str] | None = None,
     ) -> dict[str, Any]:
         self.db.delete_expired_upload_tasks()
+        assert_can_start_derived_task(self.db, task_kind=TASK_KIND_DAMAGE_CALCULATION)
         existing = self.db.find_active_derived_data_task(program_id, version)
         if existing is not None:
             allowed_kinds = reuse_task_kinds or DERIVED_DATA_TASK_KINDS
@@ -145,7 +148,13 @@ class DamageCalculationTaskService:
         active_schedule: dict[str, Any],
         preview: dict[str, Any],
     ) -> None:
-        self.db.update_upload_task(task_id, status="running", phase="validating")
+        self.db.update_upload_task(
+            task_id,
+            status="running",
+            phase="validating",
+            runner_id=threading.current_thread().name,
+            heartbeat_at=datetime.now(UTC),
+        )
         validation_report = validate_schedule_for_damage(preview)
         if validation_report is not None:
             self.db.update_upload_task(
@@ -157,6 +166,7 @@ class DamageCalculationTaskService:
                 current_event=None,
                 error=validation_report.summary,
                 result={"failure_report": validation_report.model_dump()},
+                heartbeat_at=datetime.now(UTC),
             )
             return
 
@@ -173,6 +183,7 @@ class DamageCalculationTaskService:
                 phase="calculating",
                 total_events=total_events,
                 completed_events=0,
+                heartbeat_at=datetime.now(UTC),
             )
             for row in rows:
                 event_id = str(row["event_id"])
@@ -182,6 +193,7 @@ class DamageCalculationTaskService:
                     task_id,
                     current_event=event_id,
                     completed_events=completed,
+                    heartbeat_at=datetime.now(UTC),
                 )
                 series_items = self.query_service.get_damage_channel_series([event_id])
                 for item in series_items:
@@ -193,6 +205,7 @@ class DamageCalculationTaskService:
                             event_id,
                             channel_name,
                         ),
+                        heartbeat_at=datetime.now(UTC),
                     )
                     if item.get("status") == "unavailable":
                         self.db.upsert_event_channel_damage(
@@ -259,7 +272,11 @@ class DamageCalculationTaskService:
                         status="current",
                     )
                 completed += 1
-                self.db.update_upload_task(task_id, completed_events=completed)
+                self.db.update_upload_task(
+                    task_id,
+                    completed_events=completed,
+                    heartbeat_at=datetime.now(UTC),
+                )
 
             self.db.update_upload_task(
                 task_id,
@@ -271,6 +288,7 @@ class DamageCalculationTaskService:
                 completed_events=completed,
                 total_events=total_events,
                 result={"processed_events": completed},
+                heartbeat_at=datetime.now(UTC),
             )
         except Exception as exc:  # pragma: no cover
             logger.exception("Damage calculation task failed unexpectedly: %s", task_id)
@@ -293,4 +311,5 @@ class DamageCalculationTaskService:
                 current_event=None,
                 error=str(exc),
                 result={"failure_report": failure_report},
+                heartbeat_at=datetime.now(UTC),
             )

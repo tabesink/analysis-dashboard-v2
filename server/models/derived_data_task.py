@@ -23,7 +23,9 @@ class DerivedTaskStatusEvent(BaseModel):
 
     task_id: str
     task_kind: DerivedTaskKind
-    status: str = Field(description="queued, running, completed, or failed")
+    status: str = Field(
+        description="queued, running, cancelling, completed, failed, or cancelled"
+    )
     phase: str
     sub_phase: str | None = None
     progress_message: str | None = None

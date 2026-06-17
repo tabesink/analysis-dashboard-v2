@@ -36,6 +36,13 @@ function readProcessedEvents(event: DerivedTaskStatusEvent): number {
 export function buildDamageCalculationCompletionResult(
   event: DerivedTaskStatusEvent,
 ): DamageCalculationCompletionResult {
+  if (event.status === 'cancelled') {
+    return {
+      success: false,
+      title: 'Damage calculation cancelled',
+      message: event.error ?? 'Damage calculation was cancelled safely.',
+    };
+  }
   if (event.status === 'failed') {
     const failureReport = readFailureReport(event);
     return {

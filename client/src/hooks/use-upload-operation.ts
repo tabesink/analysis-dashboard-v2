@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
+import { showShortInfoToast } from '@/lib/feedback/short-info-toast';
 import type { UploadMetadata, UploadResponse } from '@/types/upload';
-import { useUpload } from '@/hooks/use-upload';
+import { UploadTaskCancelledError, useUpload } from '@/hooks/use-upload';
 import {
   buildUploadCancelledResult,
   buildUploadCompletionResult,
@@ -28,6 +29,7 @@ export interface UseUploadOperationReturn {
   ) => Promise<void>;
   modalProps: UploadOperationModalProps;
   isBusy: boolean;
+  recoverTask: (taskId: string) => Promise<void>;
 }
 
 export function useUploadOperation({
@@ -38,7 +40,6 @@ export function useUploadOperation({
   const [wizardStep, setWizardStep] = useState<UploadWizardStep>('progress');
   const [blocking, setBlocking] = useState(false);
   const [completionResult, setCompletionResult] = useState<UploadCompletionResult | null>(null);
-  const cancelRequestedRef = useRef(false);
 
   const reset = useCallback(() => {
     setWizardStep('progress');
@@ -63,7 +64,7 @@ export function useUploadOperation({
     setBlocking(false);
   }, []);
 
-  const { upload, cancel, isUploading, progress, message, progressPhase } = useUpload({
+  const { upload, recover, cancel, isUploading, isCancelling, progress, message, progressPhase } = useUpload({
     onComplete: undefined,
     onError: undefined,
   });
@@ -78,8 +79,7 @@ export function useUploadOperation({
       setWizardStep('progress');
       setBlocking(true);
       setCompletionResult(null);
-      cancelRequestedRef.current = false;
-      toast.info('Import started');
+      showShortInfoToast('Import started');
 
       const startedAt = Date.now();
 
@@ -91,12 +91,12 @@ export function useUploadOperation({
         await onComplete?.(response);
       } catch (error) {
         const elapsedSeconds = (Date.now() - startedAt) / 1000;
+        if (error instanceof UploadTaskCancelledError) {
+          finishWithSummary(buildUploadCancelledResult(elapsedSeconds));
+          showShortInfoToast('Import cancelled');
+          return;
+        }
         if (error instanceof DOMException && error.name === 'AbortError') {
-          if (cancelRequestedRef.current) {
-            finishWithSummary(buildUploadCancelledResult(elapsedSeconds));
-            toast.info('Import cancelled');
-            return;
-          }
           reset();
           setOpen(false);
           return;
@@ -110,9 +110,13 @@ export function useUploadOperation({
     [finishWithSummary, onComplete, onError, reset, upload],
   );
 
-  const handleCancelUpload = useCallback(() => {
-    cancelRequestedRef.current = true;
-    cancel();
+  const handleCancelUpload = useCallback(async () => {
+    try {
+      await cancel();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Could not request cancellation.';
+      toast.error(errorMessage);
+    }
   }, [cancel]);
 
   const closeSummary = useCallback(() => {
@@ -120,8 +124,33 @@ export function useUploadOperation({
     setOpen(false);
   }, [reset]);
 
+  const recoverTask = useCallback(
+    async (taskId: string) => {
+      setOpen(true);
+      setWizardStep('progress');
+      setBlocking(true);
+      setCompletionResult(null);
+      const startedAt = Date.now();
+      try {
+        const response = await recover(taskId);
+        const elapsedSeconds = (Date.now() - startedAt) / 1000;
+        finishWithSummary(buildUploadCompletionResult({ response, elapsedSeconds }));
+      } catch (error) {
+        const elapsedSeconds = (Date.now() - startedAt) / 1000;
+        if (error instanceof UploadTaskCancelledError) {
+          finishWithSummary(buildUploadCancelledResult(elapsedSeconds));
+          return;
+        }
+        const errorMessage = error instanceof Error ? error.message : 'Upload recovery failed';
+        finishWithSummary(buildUploadFailedResult({ errorMessage, elapsedSeconds }));
+      }
+    },
+    [finishWithSummary, recover],
+  );
+
   return {
     startUpload,
+    recoverTask,
     isBusy: isUploading || open,
     modalProps: {
       open,
@@ -131,6 +160,7 @@ export function useUploadOperation({
       progress,
       progressPhase,
       progressMessage: message,
+      isCancelling,
       completionResult,
       onCancelUpload: handleCancelUpload,
       onCloseSummary: closeSummary,

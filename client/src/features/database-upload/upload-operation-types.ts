@@ -18,6 +18,7 @@ export interface UploadOperationModalProps {
   progress: number;
   progressPhase: UploadProgressPhase;
   progressMessage: string;
+  isCancelling?: boolean;
   completionResult?: UploadCompletionResult | null;
   onCancelUpload?: () => void;
   onCloseSummary?: () => void;

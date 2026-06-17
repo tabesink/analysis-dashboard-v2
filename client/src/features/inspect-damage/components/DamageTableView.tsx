@@ -63,6 +63,7 @@ function getColumnValue(event: EventMetadata, columnKey: string): string {
 
 export function DamageTableView({
   title = 'Damage Table',
+  showHeader = true,
   events,
   damageRowsByEventId,
   channelMetadata,
@@ -78,6 +79,7 @@ export function DamageTableView({
   emptyStateDescription = 'No persisted damage results are available yet. Run a damage calculation to populate this table.',
 }: {
   title?: string;
+  showHeader?: boolean;
   events: EventMetadata[];
   damageRowsByEventId: Map<string, DamageInspectResponse['rows'][number]>;
   channelMetadata: Map<string, DamageInspectResponse['channels'][number]>;
@@ -440,69 +442,71 @@ export function DamageTableView({
 
   return (
     <>
-      <div className="shrink-0 flex items-center justify-between border-b px-4 py-3">
-        <div className="flex min-h-9 items-center gap-2">
-          <p className="text-sm font-medium">{title}</p>
-          {(isLoading || isCalculatingDamage) && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {isCalculatingDamage ? 'Calculation running...' : 'Loading saved damage results...'}
-            </div>
-          )}
-        </div>
-        <div className="flex min-h-9 items-center gap-2">
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                aria-label="Column visibility"
-                className={cn('min-w-[5.75rem] justify-center')}
-              >
-                <Columns className="size-4" />
-                Cols
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-56 p-3" align="end">
-              <div className="space-y-3">
-                <div className="text-xs font-semibold">Column Visibility</div>
-                <div className="space-y-2 bg-muted/70 rounded-md p-2 max-h-[280px] overflow-y-auto">
-                  {columnDefinitions.map((col) => (
-                    <div key={col.key} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`damage-col-${col.key}`}
-                        checked={visibleColumns[col.key]}
-                        onCheckedChange={(checked) =>
-                          handleColumnVisibilityToggle(col.key, checked as boolean)
-                        }
-                        className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                      />
-                      <label
-                        htmlFor={`damage-col-${col.key}`}
-                        className="text-xs cursor-pointer flex-1"
-                      >
-                        {col.label}
-                      </label>
-                    </div>
-                  ))}
-                </div>
-                <div className="text-xs text-muted-foreground pt-2 border-t">
-                  {Object.values(visibleColumns).filter(Boolean).length} columns visible
-                </div>
+      {showHeader ? (
+        <div className="shrink-0 flex items-center justify-between border-b px-4 py-3">
+          <div className="flex min-h-9 items-center gap-2">
+            <p className="text-sm font-medium">{title}</p>
+            {(isLoading || isCalculatingDamage) && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {isCalculatingDamage ? 'Calculation running...' : 'Loading saved damage results...'}
+              </div>
+            )}
+          </div>
+          <div className="flex min-h-9 items-center gap-2">
+            <Popover>
+              <PopoverTrigger asChild>
                 <Button
                   type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={resetTablePreferences}
-                  className="h-7 w-full justify-start px-2 text-xs"
+                  variant="outline"
+                  aria-label="Column visibility"
+                  className={cn('min-w-[5.75rem] justify-center')}
                 >
-                  Reset table preferences
+                  <Columns className="size-4" />
+                  Cols
                 </Button>
-              </div>
-            </PopoverContent>
-          </Popover>
+              </PopoverTrigger>
+              <PopoverContent className="w-56 p-3" align="end">
+                <div className="space-y-3">
+                  <div className="text-xs font-semibold">Column Visibility</div>
+                  <div className="space-y-2 bg-muted/70 rounded-md p-2 max-h-[280px] overflow-y-auto">
+                    {columnDefinitions.map((col) => (
+                      <div key={col.key} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`damage-col-${col.key}`}
+                          checked={visibleColumns[col.key]}
+                          onCheckedChange={(checked) =>
+                            handleColumnVisibilityToggle(col.key, checked as boolean)
+                          }
+                          className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                        />
+                        <label
+                          htmlFor={`damage-col-${col.key}`}
+                          className="text-xs cursor-pointer flex-1"
+                        >
+                          {col.label}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-xs text-muted-foreground pt-2 border-t">
+                    {Object.values(visibleColumns).filter(Boolean).length} columns visible
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={resetTablePreferences}
+                    className="h-7 w-full justify-start px-2 text-xs"
+                  >
+                    Reset table preferences
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <CardContent className="min-h-0 flex-1 overflow-auto p-0">
         {events.length === 0 ? (
@@ -523,14 +527,14 @@ export function DamageTableView({
               </div>
             ) : null}
             {viewState.runningScopes.length > 0 ? (
-              <div className="m-3 flex items-start gap-2 rounded-lg border border-blue-500/40 bg-blue-500/10 px-4 py-3 text-sm text-blue-950">
+              <div className="m-3 flex items-start gap-2 rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm text-foreground">
                 <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
                 <div className="flex-1">
                   <p className="font-medium">Calculation running</p>
-                  <p className="mt-1 text-xs text-blue-900/80">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     Loading saved damage results while processing continues for:
                   </p>
-                  <p className="mt-2 text-xs font-medium text-blue-900">
+                  <p className="mt-2 text-xs font-medium text-foreground">
                     {viewState.runningScopes
                       .map((scope) => `${scope.program_id} / ${scope.version}`)
                       .join(', ')}
@@ -547,7 +551,7 @@ export function DamageTableView({
                 <p className="mt-1 text-xs text-muted-foreground">{report.summary}</p>
               </div>
             ))}
-            <div className="sticky top-0 z-10 flex items-center py-2 px-3 border-b bg-card text-xs font-semibold text-foreground/70">
+            <div className="sticky top-0 z-10 flex items-center py-2 px-3 border-b bg-card text-xs font-semibold text-muted-foreground">
               <div
                 className="relative flex items-center gap-2 shrink-0 pl-1"
                 style={{ width: programIdWidth }}
@@ -593,7 +597,7 @@ export function DamageTableView({
                       <span className="inline-flex items-center gap-1">
                         {col.label}
                         {columnHasStaleValues ? (
-                          <span className="rounded bg-amber-500/15 px-1 text-[10px] font-medium text-amber-800">
+                          <span className="rounded bg-muted px-1 text-xs font-medium text-muted-foreground">
                             Outdated
                           </span>
                         ) : null}
@@ -625,10 +629,10 @@ export function DamageTableView({
                 if (cell.status === 'error') {
                   return (
                     <span
-                      className="inline-flex items-center gap-1 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
+                      className="inline-flex h-5 max-w-full items-center gap-1 truncate rounded bg-destructive/10 px-1.5 text-xs font-medium leading-none text-destructive"
                       title={cell.error ?? 'Damage calculation failed'}
                     >
-                      <AlertTriangle className="size-3" />
+                      <AlertTriangle className="size-3 shrink-0" />
                       Error
                     </span>
                   );
@@ -636,7 +640,7 @@ export function DamageTableView({
                 if (cell.status === 'unavailable') {
                   return (
                     <span
-                      className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                      className="inline-flex h-5 max-w-full items-center truncate rounded bg-muted px-1.5 text-xs font-medium leading-none text-muted-foreground"
                       title={cell.error ?? 'No mapped channel data is available for this event'}
                     >
                       Unavailable
@@ -646,9 +650,9 @@ export function DamageTableView({
                 const value = formatDamage(cell.damage);
                 if (!isDamageCellStale(cell)) return value;
                 return (
-                  <span className="inline-flex items-center gap-1">
-                    <span>{value}</span>
-                    <span className="rounded bg-amber-500/15 px-1 text-[10px] font-medium text-amber-800">
+                  <span className="inline-flex h-5 max-w-full items-center gap-1 leading-none">
+                    <span className="truncate">{value}</span>
+                    <span className="shrink-0 rounded bg-muted px-1 text-xs font-medium leading-none text-muted-foreground">
                       Outdated
                     </span>
                   </span>

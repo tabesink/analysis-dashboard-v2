@@ -77,7 +77,7 @@ export function SiteHeader({ config }: SiteHeaderProps) {
       <div className="flex w-full items-center justify-between px-6">
         <div className="flex items-center gap-3">
           {headerConfig.title && (
-            <h1 className="text-sm font-medium text-foreground/90 tracking-tight">
+            <h1 className="text-sm font-medium text-foreground tracking-tight">
               {headerConfig.title}
             </h1>
           )}

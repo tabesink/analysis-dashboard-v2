@@ -1,11 +1,8 @@
 'use client';
 
-import type { CSSProperties } from 'react';
-import { useCallback, useMemo, useState } from 'react';
-import { Info } from 'lucide-react';
-import { ColumnResizeHandle } from '@/features/database/datasets';
-import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { Info } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 import type { DurabilityScheduleRow } from '@/features/edit-metadata/lib/build-durability-schedule-rows';
 
 const COLUMN_KEYS = [
@@ -18,21 +15,34 @@ const COLUMN_KEYS = [
   'globalMultiplier',
 ] as const;
 
-type ColumnKey = (typeof COLUMN_KEYS)[number];
-
-const DEFAULT_COLUMN_WIDTHS: Record<ColumnKey, number> = {
-  rspFileName: 330,
-  rspEventName: 120,
-  schedulePattern: 144,
-  weight: 72,
-  repeats: 72,
-  scheduleSequence: 156,
-  globalMultiplier: 132,
+const COLUMN_HEADERS: Record<(typeof COLUMN_KEYS)[number], string> = {
+  rspFileName: 'RSP File Name',
+  rspEventName: 'RSP Event Name',
+  schedulePattern: 'Schedule Pattern',
+  weight: 'Weight',
+  repeats: 'Repeats',
+  scheduleSequence: 'Schedule Sequence',
+  globalMultiplier: 'Global Multiplier',
 };
 
-const MIN_COLUMN_PX = 60;
-const MAX_COLUMN_PX = 600;
+/** Full-width grid: flexible text columns + compact numeric columns */
+const DURABILITY_SCHEDULE_GRID_COLS =
+  'grid-cols-[minmax(0,3.25fr)_minmax(0,0.75fr)_minmax(5rem,1fr)_3.5rem_3.5rem_minmax(5.5rem,1fr)_minmax(5.5rem,1fr)]';
+
 const MIN_PADDING_ROWS = 4;
+
+const TABLE_ROW_BORDER = 'border-b border-border/50';
+const TABLE_CELL_DIVIDER = 'border-r border-border/50';
+
+const HEADER_CELL_CLASS =
+  `flex min-w-0 items-center whitespace-nowrap ${TABLE_CELL_DIVIDER} bg-muted/40 px-3 text-xs font-medium leading-none text-foreground`;
+const LABEL_CELL_CLASS =
+  `flex min-w-0 items-center ${TABLE_CELL_DIVIDER} bg-muted/40 px-3`;
+const EDITABLE_CELL_CLASS = `flex min-w-0 items-center ${TABLE_CELL_DIVIDER} bg-muted/40`;
+const TABLE_INPUT_BASE_CLASS =
+  'h-8 w-full rounded-none border-0 bg-transparent text-xs md:text-xs leading-none text-foreground shadow-none focus-visible:border-transparent focus-visible:ring-0';
+const NUMERIC_INPUT_CLASS = `${TABLE_INPUT_BASE_CLASS} px-1 text-center tabular-nums`;
+const TEXT_INPUT_CLASS = `${TABLE_INPUT_BASE_CLASS} px-3 text-left`;
 
 export type DurabilityScheduleEditableField =
   | 'rspEventName'
@@ -40,10 +50,6 @@ export type DurabilityScheduleEditableField =
   | 'weight'
   | 'repeats'
   | 'scheduleSequence';
-
-function flexFor(basis: number): CSSProperties {
-  return { flex: `${basis} 0 ${basis}px` };
-}
 
 function formatCell(value: string | number | null | undefined): string {
   if (value == null || value === '') {
@@ -54,7 +60,14 @@ function formatCell(value: string | number | null | undefined): string {
 
 function Row({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={cn('flex h-8 shrink-0 items-stretch', className)}>
+    <div
+      className={cn(
+        'grid h-8 shrink-0 items-stretch transition-colors hover:bg-muted/30',
+        TABLE_ROW_BORDER,
+        DURABILITY_SCHEDULE_GRID_COLS,
+        className,
+      )}
+    >
       {children}
     </div>
   );
@@ -62,86 +75,88 @@ function Row({ children, className }: { children: React.ReactNode; className?: s
 
 function HeaderCell({
   children,
-  width,
   className,
   title,
-  onResize,
 }: {
   children?: React.ReactNode;
-  width: number;
   className?: string;
   title?: string;
-  onResize: (next: number) => void;
 }) {
   return (
-    <div
-      className={cn(
-        'relative flex min-w-0 items-center justify-center whitespace-nowrap border-b border-r border-border bg-muted/40 px-2 text-center text-[11px] leading-none',
-        className,
-      )}
-      style={flexFor(width)}
-      title={title}
-    >
+    <div className={cn(HEADER_CELL_CLASS, className)} title={title}>
       {children}
-      <ColumnResizeHandle
-        width={width}
-        onResize={onResize}
-        min={MIN_COLUMN_PX}
-        max={MAX_COLUMN_PX}
-      />
+    </div>
+  );
+}
+
+function LabelCell({
+  value,
+  className,
+}: {
+  value: string | number | null | undefined;
+  className?: string;
+}) {
+  const display = formatCell(value);
+  return (
+    <div className={cn(LABEL_CELL_CLASS, className)} title={display || undefined}>
+      <span className="block w-full truncate whitespace-nowrap text-xs leading-none text-foreground">
+        {display}
+      </span>
     </div>
   );
 }
 
 function DataCell({
   value,
-  width,
   className,
+  numeric = false,
 }: {
   value: string | number | null | undefined;
-  width: number;
   className?: string;
+  numeric?: boolean;
 }) {
   const display = formatCell(value);
   return (
     <div
-      className={cn(
-        'flex min-w-0 items-center justify-center border-b border-r border-border px-2 text-center text-xs tabular-nums leading-none text-foreground/80',
-        className,
-      )}
-      style={flexFor(width)}
+      className={cn(EDITABLE_CELL_CLASS, numeric && 'justify-center', className)}
       title={display || undefined}
     >
-      <span className="truncate">{display}</span>
+      <span
+        className={cn(
+          'block w-full truncate text-xs leading-none text-foreground',
+          numeric ? 'text-center tabular-nums' : 'whitespace-nowrap',
+        )}
+      >
+        {display}
+      </span>
     </div>
   );
 }
 
 function EditableCell({
   value,
-  width,
   className,
   inputMode,
   onChange,
   disabled,
   highlighted,
+  numeric = false,
 }: {
   value: string;
-  width: number;
   className?: string;
   inputMode?: 'text' | 'decimal' | 'numeric';
   onChange: (value: string) => void;
   disabled?: boolean;
   highlighted?: boolean;
+  numeric?: boolean;
 }) {
   return (
     <div
       className={cn(
-        'flex min-w-0 items-center border-b border-r border-border bg-muted/40',
+        EDITABLE_CELL_CLASS,
         highlighted && 'bg-destructive/10 ring-1 ring-inset ring-destructive/40',
         className,
       )}
-      style={flexFor(width)}
       data-highlighted={highlighted ? 'true' : undefined}
     >
       <Input
@@ -149,7 +164,7 @@ function EditableCell({
         onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
         inputMode={inputMode}
-        className="h-8 w-full rounded-none border-0 bg-transparent px-2 text-center text-xs tabular-nums leading-none text-foreground shadow-none focus-visible:border-transparent focus-visible:ring-0"
+        className={numeric ? NUMERIC_INPUT_CLASS : TEXT_INPUT_CLASS}
       />
     </div>
   );
@@ -159,6 +174,7 @@ export interface DurabilityScheduleTableProps {
   rows: DurabilityScheduleRow[];
   globalMultiplier?: number | null;
   editable?: boolean;
+  helperText?: string;
   highlightedFieldsByRowId?: Record<string, DurabilityScheduleEditableField[]>;
   onRowChange?: (rowId: string, field: DurabilityScheduleEditableField, value: string) => void;
   onMultiplierChange?: (value: string) => void;
@@ -177,6 +193,7 @@ export function DurabilityScheduleTable({
   rows,
   globalMultiplier = null,
   editable = false,
+  helperText,
   highlightedFieldsByRowId,
   onRowChange,
   onMultiplierChange,
@@ -184,185 +201,122 @@ export function DurabilityScheduleTable({
 }: DurabilityScheduleTableProps) {
   const paddingRowCount = Math.max(0, minPaddingRows - rows.length);
   const multiplierDisplay = formatCell(globalMultiplier);
-  const [columnWidthOverrides, setColumnWidthOverrides] = useState<
-    Partial<Record<ColumnKey, number>>
-  >({});
-
-  const setColumnWidth = useCallback((key: ColumnKey, next: number) => {
-    setColumnWidthOverrides((prev) => (prev[key] === next ? prev : { ...prev, [key]: next }));
-  }, []);
-
-  const widthOf = useCallback(
-    (key: ColumnKey) => columnWidthOverrides[key] ?? DEFAULT_COLUMN_WIDTHS[key],
-    [columnWidthOverrides],
-  );
-
-  const tableWidth = useMemo(
-    () => COLUMN_KEYS.reduce((sum, key) => sum + widthOf(key), 0),
-    [widthOf],
-  );
 
   return (
-    <div className="flex min-h-0 w-full max-w-full flex-1 flex-col overflow-hidden rounded-lg border bg-card">
-      <div className="flex shrink-0 items-start gap-1.5 border-b px-3 py-1.5 text-xs leading-5 text-muted-foreground">
-        <Info
-          className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
-        <p className="min-w-0">
-          {editable
-            ? 'Edit schedule fields inline, then Save to persist corrections.'
-            : 'Review matched schedule fields for each RSP event in this program/version.'}
-        </p>
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto">
-        <div style={{ width: tableWidth }}>
-          <div className="sticky top-0 z-10 shrink-0 bg-card">
-            <Row>
-              <HeaderCell
-                width={widthOf('rspFileName')}
-                className="font-medium text-foreground"
-                onResize={(next) => setColumnWidth('rspFileName', next)}
-              >
-                RSP File Name
-              </HeaderCell>
-              <HeaderCell
-                width={widthOf('rspEventName')}
-                className="font-medium text-foreground"
-                onResize={(next) => setColumnWidth('rspEventName', next)}
-              >
-                RSP Event Name
-              </HeaderCell>
-              <HeaderCell
-                width={widthOf('schedulePattern')}
-                className="font-medium text-foreground"
-                onResize={(next) => setColumnWidth('schedulePattern', next)}
-              >
-                Schedule Pattern
-              </HeaderCell>
-              <HeaderCell
-                width={widthOf('weight')}
-                className="font-medium text-foreground"
-                onResize={(next) => setColumnWidth('weight', next)}
-              >
-                Weight
-              </HeaderCell>
-              <HeaderCell
-                width={widthOf('repeats')}
-                className="font-medium text-foreground"
-                onResize={(next) => setColumnWidth('repeats', next)}
-              >
-                Repeats
-              </HeaderCell>
-              <HeaderCell
-                width={widthOf('scheduleSequence')}
-                className="font-medium text-foreground"
-                onResize={(next) => setColumnWidth('scheduleSequence', next)}
-              >
-                Schedule Sequence
-              </HeaderCell>
-              <HeaderCell
-                width={widthOf('globalMultiplier')}
-                className="border-r-0 font-medium text-foreground"
-                onResize={(next) => setColumnWidth('globalMultiplier', next)}
-              >
-                Global Multiplier
-              </HeaderCell>
-            </Row>
-          </div>
+    <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-lg border bg-card">
+      {helperText ? (
+        <div className="flex shrink-0 items-start gap-1.5 border-b border-border/50 px-3 py-1.5 text-xs leading-5 text-muted-foreground">
+          <Info
+            className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <p className="min-w-0">{helperText}</p>
+        </div>
+      ) : null}
+      <div className="min-h-0 w-full flex-1 overflow-hidden bg-card">
+        <div className="sticky top-0 z-10 shrink-0 bg-card">
+          <Row className="hover:bg-transparent">
+            <HeaderCell>{COLUMN_HEADERS.rspFileName}</HeaderCell>
+            <HeaderCell>{COLUMN_HEADERS.rspEventName}</HeaderCell>
+            <HeaderCell title={COLUMN_HEADERS.schedulePattern}>
+              {COLUMN_HEADERS.schedulePattern}
+            </HeaderCell>
+            <HeaderCell className="justify-center text-center">{COLUMN_HEADERS.weight}</HeaderCell>
+            <HeaderCell className="justify-center text-center">{COLUMN_HEADERS.repeats}</HeaderCell>
+            <HeaderCell className="justify-center text-center">
+              {COLUMN_HEADERS.scheduleSequence}
+            </HeaderCell>
+            <HeaderCell className="justify-center border-r-0 text-center">
+              {COLUMN_HEADERS.globalMultiplier}
+            </HeaderCell>
+          </Row>
+        </div>
 
-          <div>
-            {rows.map((row) => (
-              <Row key={row.id} className="bg-card transition-colors hover:bg-muted/30">
-                <DataCell value={row.rspFileName} width={widthOf('rspFileName')} />
-                {editable ? (
-                  <>
-                    <EditableCell
-                      value={row.rspEventName}
-                      width={widthOf('rspEventName')}
-                      highlighted={isFieldHighlighted(
-                        highlightedFieldsByRowId,
-                        row.id,
-                        'rspEventName',
-                      )}
-                      onChange={(value) => onRowChange?.(row.id, 'rspEventName', value)}
-                    />
-                    <EditableCell
-                      value={row.schedulePattern}
-                      width={widthOf('schedulePattern')}
-                      highlighted={isFieldHighlighted(
-                        highlightedFieldsByRowId,
-                        row.id,
-                        'schedulePattern',
-                      )}
-                      onChange={(value) => onRowChange?.(row.id, 'schedulePattern', value)}
-                    />
-                    <EditableCell
-                      value={formatCell(row.weight)}
-                      width={widthOf('weight')}
-                      inputMode="decimal"
-                      highlighted={isFieldHighlighted(highlightedFieldsByRowId, row.id, 'weight')}
-                      onChange={(value) => onRowChange?.(row.id, 'weight', value)}
-                    />
-                    <EditableCell
-                      value={formatCell(row.repeats)}
-                      width={widthOf('repeats')}
-                      inputMode="numeric"
-                      highlighted={isFieldHighlighted(highlightedFieldsByRowId, row.id, 'repeats')}
-                      onChange={(value) => onRowChange?.(row.id, 'repeats', value)}
-                    />
-                    <EditableCell
-                      value={formatCell(row.scheduleSequence)}
-                      width={widthOf('scheduleSequence')}
-                      inputMode="numeric"
-                      onChange={(value) => onRowChange?.(row.id, 'scheduleSequence', value)}
-                    />
-                    <EditableCell
-                      value={multiplierDisplay}
-                      width={widthOf('globalMultiplier')}
-                      inputMode="decimal"
-                      className="border-r-0"
-                      onChange={(value) => onMultiplierChange?.(value)}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <DataCell value={row.rspEventName} width={widthOf('rspEventName')} />
-                    <DataCell value={row.schedulePattern} width={widthOf('schedulePattern')} />
-                    <DataCell value={row.weight} width={widthOf('weight')} />
-                    <DataCell value={row.repeats} width={widthOf('repeats')} />
-                    <DataCell value={row.scheduleSequence} width={widthOf('scheduleSequence')} />
-                    <DataCell
-                      value={globalMultiplier}
-                      width={widthOf('globalMultiplier')}
-                      className="border-r-0"
-                    />
-                  </>
-                )}
-              </Row>
-            ))}
-
-            {rows.length === 0 ? (
-              <div className="flex h-8 items-center justify-center border-b px-3 text-xs text-muted-foreground">
-                No RSP events matched this schedule for the selected program/version.
-              </div>
-            ) : null}
-
-            {Array.from({ length: paddingRowCount }, (_, index) => (
-              <Row key={`padding-${index}`} aria-hidden="true">
-                {COLUMN_KEYS.map((key, cellIndex) => (
-                  <div
-                    key={`padding-cell-${index}-${key}`}
-                    className={cn(
-                      'h-8 border-b border-r border-border bg-card',
-                      cellIndex === COLUMN_KEYS.length - 1 && 'border-r-0',
+        <div>
+          {rows.map((row) => (
+            <Row key={row.id}>
+              <LabelCell value={row.rspFileName} />
+              {editable ? (
+                <>
+                  <EditableCell
+                    value={row.rspEventName}
+                    highlighted={isFieldHighlighted(
+                      highlightedFieldsByRowId,
+                      row.id,
+                      'rspEventName',
                     )}
-                    style={flexFor(widthOf(key))}
+                    onChange={(value) => onRowChange?.(row.id, 'rspEventName', value)}
                   />
-                ))}
-              </Row>
-            ))}
-          </div>
+                  <EditableCell
+                    value={row.schedulePattern}
+                    highlighted={isFieldHighlighted(
+                      highlightedFieldsByRowId,
+                      row.id,
+                      'schedulePattern',
+                    )}
+                    onChange={(value) => onRowChange?.(row.id, 'schedulePattern', value)}
+                  />
+                  <EditableCell
+                    value={formatCell(row.weight)}
+                    inputMode="decimal"
+                    numeric
+                    highlighted={isFieldHighlighted(highlightedFieldsByRowId, row.id, 'weight')}
+                    onChange={(value) => onRowChange?.(row.id, 'weight', value)}
+                  />
+                  <EditableCell
+                    value={formatCell(row.repeats)}
+                    inputMode="numeric"
+                    numeric
+                    highlighted={isFieldHighlighted(highlightedFieldsByRowId, row.id, 'repeats')}
+                    onChange={(value) => onRowChange?.(row.id, 'repeats', value)}
+                  />
+                  <EditableCell
+                    value={formatCell(row.scheduleSequence)}
+                    inputMode="numeric"
+                    numeric
+                    onChange={(value) => onRowChange?.(row.id, 'scheduleSequence', value)}
+                  />
+                  <EditableCell
+                    value={multiplierDisplay}
+                    inputMode="decimal"
+                    numeric
+                    className="border-r-0"
+                    onChange={(value) => onMultiplierChange?.(value)}
+                  />
+                </>
+              ) : (
+                <>
+                  <DataCell value={row.rspEventName} />
+                  <DataCell value={row.schedulePattern} />
+                  <DataCell value={row.weight} numeric />
+                  <DataCell value={row.repeats} numeric />
+                  <DataCell value={row.scheduleSequence} numeric />
+                  <DataCell value={globalMultiplier} className="border-r-0" numeric />
+                </>
+              )}
+            </Row>
+          ))}
+
+          {rows.length === 0 ? (
+            <div className="flex h-8 items-center justify-center border-b border-border/50 px-3 text-xs leading-none text-muted-foreground">
+              No RSP events matched this schedule for the selected program/version.
+            </div>
+          ) : null}
+
+          {Array.from({ length: paddingRowCount }, (_, index) => (
+            <Row key={`padding-${index}`} aria-hidden="true" className="hover:bg-transparent">
+              {COLUMN_KEYS.map((key, cellIndex) => (
+                <div
+                  key={`padding-cell-${index}-${key}`}
+                  className={cn(
+                    'h-8 bg-muted/40',
+                    TABLE_CELL_DIVIDER,
+                    cellIndex === COLUMN_KEYS.length - 1 && 'border-r-0',
+                  )}
+                />
+              ))}
+            </Row>
+          ))}
         </div>
       </div>
     </div>

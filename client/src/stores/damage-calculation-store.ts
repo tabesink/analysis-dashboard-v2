@@ -24,7 +24,7 @@ export type DamageCalculationWizardStep = "progress" | "summary";
 
 export interface DamageCalculationScopeState {
   taskId: string;
-  status: "running" | "completed" | "failed";
+  status: "running" | "cancelling" | "completed" | "failed" | "cancelled";
   origin: DamageCalculationTaskOrigin;
   modalOpen: boolean;
   wizardStep: DamageCalculationWizardStep;
@@ -60,6 +60,7 @@ async function pollDamageCalculationTask(
       const mapped = mapDamageCalculationProgress(event);
       helpers.updateScope((current) => ({
         ...current,
+        status: event.status === "cancelling" ? "cancelling" : current.status,
         progress: mapped.progress,
         progressPhase: mapped.progressPhase,
         progressMessage: mapped.progressMessage,
@@ -79,7 +80,10 @@ async function pollDamageCalculationTask(
 
     helpers.updateScope((scopeState) => ({
       ...scopeState,
-      status: resolved.status,
+      status:
+        finalEvent.status === "cancelled"
+          ? "cancelled"
+          : resolved.status,
       wizardStep: "summary",
       progress: 100,
       progressMessage: resolved.completionResult.message,

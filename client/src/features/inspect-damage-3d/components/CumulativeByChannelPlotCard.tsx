@@ -70,7 +70,8 @@ export function CumulativeByChannelPlotCard({
   error = null,
   className,
 }: CumulativeByChannelPlotCardProps) {
-  const isEmpty = Boolean(spec.emptyState) || spec.series.length === 0 || spec.xCategories.length === 0;
+  const hasChartData =
+    !spec.emptyState && spec.series.length > 0 && spec.xCategories.length > 0;
   const yMax = spec.yScale.domain[1] > 0 ? spec.yScale.domain[1] : 1;
   const tickCount = 5;
   const ticks = Array.from({ length: tickCount }, (_, index) => (yMax / (tickCount - 1)) * index);
@@ -91,9 +92,6 @@ export function CumulativeByChannelPlotCard({
       subtitle={spec.subtitle}
       isLoading={isLoading}
       error={error}
-      isEmpty={isEmpty}
-      emptyTitle={spec.emptyState?.title ?? 'No cumulative data'}
-      emptyDescription={spec.emptyState?.description}
       className={cn(className ?? PLOT_CARD_BASE_CLASS)}
     >
       <div className={DAMAGE_PLOT_CHART_REGION_CLASS}>
@@ -137,7 +135,8 @@ export function CumulativeByChannelPlotCard({
             );
           })}
 
-          {spec.xCategories.map((channel, categoryIndex) => {
+          {hasChartData
+            ? spec.xCategories.map((channel, categoryIndex) => {
             const bandWidth = categoryBandWidth(spec.xCategories.length, padding);
             const groupLeft = padding.left + categoryIndex * bandWidth;
             const innerGap = 3;
@@ -193,10 +192,11 @@ export function CumulativeByChannelPlotCard({
                 </text>
               </g>
             );
-          })}
+          })
+            : null}
         </svg>
 
-        <PlotLegendOverlay items={legendItems} />
+        {hasChartData ? <PlotLegendOverlay items={legendItems} /> : null}
 
         {spec.warnings[0] ? (
           <p className="pointer-events-none absolute left-1 top-1 max-w-[70%] truncate rounded-md bg-amber-100/90 px-1.5 py-0.5 text-[9px] text-amber-800 shadow-sm">

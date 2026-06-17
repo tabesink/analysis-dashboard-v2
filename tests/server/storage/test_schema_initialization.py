@@ -106,6 +106,13 @@ def test_unified_store_initializes_declared_schema(tmp_path: Path):
             "rfq",
             "damper_type",
         }.issubset(_column_names(store, "dim_event"))
+        assert {
+            "started_at",
+            "cancel_requested_at",
+            "finished_at",
+            "last_heartbeat_at",
+            "runner_id",
+        }.issubset(_column_names(store, "upload_tasks"))
     finally:
         store.close()
 
@@ -567,6 +574,18 @@ def test_startup_backfill_reconciles_active_upload_and_derived_tasks(tmp_path: P
             scope={"program_id": "P-RECON", "version": "V1"},
         )
         first_store.update_upload_task("damage-running", status="running", phase="calculating")
+        first_store.create_upload_task(
+            task_id="folder-cancelling",
+            created_by_user_id=owner["id"],
+            total_events=1,
+            task_kind="folder_upload",
+            phase="writing",
+        )
+        first_store.update_upload_task(
+            "folder-cancelling",
+            status="cancelling",
+            phase="writing",
+        )
 
         first_store.create_upload_task(
             task_id="folder-completed",
@@ -581,12 +600,13 @@ def test_startup_backfill_reconciles_active_upload_and_derived_tasks(tmp_path: P
 
     second_store = UnifiedStore(db_path)
     try:
-        for task_id in ("folder-running", "channel-queued", "damage-running"):
+        for task_id in ("folder-running", "channel-queued", "damage-running", "folder-cancelling"):
             row = second_store.get_upload_task(task_id)
             assert row is not None
             assert row["status"] == "failed"
             assert row["phase"] == "failed"
             assert row["error"] == "Task interrupted by server restart"
+            assert row["finished_at"] is not None
 
         completed = second_store.get_upload_task("folder-completed")
         assert completed is not None

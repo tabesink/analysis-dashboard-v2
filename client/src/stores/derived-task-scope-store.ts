@@ -9,7 +9,7 @@ export interface ProgramVersionScope {
 
 export interface DerivedTaskScopeStateBase {
   taskId: string;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
   modalOpen: boolean;
   wizardStep: 'progress' | 'summary';
 }
@@ -125,14 +125,18 @@ export function createDerivedTaskScopeStore<
   }
 
   function isActive(scope: TScope): boolean {
-    return getScopeState(scope)?.status === 'running';
+    const status = getScopeState(scope)?.status;
+    return status === 'running' || status === 'cancelling';
   }
 
   function reopenModal(scope: TScope): void {
     updateScopeByKey(formatProgramVersionScopeKey(scope), (value) => ({
       ...value,
       modalOpen: true,
-      wizardStep: value.status === 'running' ? 'progress' : 'summary',
+      wizardStep:
+        value.status === 'running' || value.status === 'cancelling'
+          ? 'progress'
+          : 'summary',
     }));
   }
 

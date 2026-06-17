@@ -57,3 +57,27 @@ class CurrentUserResponse(BaseModel):
     can_write: bool = False
     created_at: datetime | None = None
     last_login_at: datetime | None = None
+
+
+class PresenceHeartbeatRequest(BaseModel):
+    """Lightweight active-user heartbeat payload."""
+
+    active_area: str | None = Field(default=None, max_length=256)
+
+
+class ActivePresenceResponse(BaseModel):
+    """Active presence record echoed after heartbeat."""
+
+    user_id: str
+    username: str
+    active_database: str
+    active_area: str | None = None
+    last_seen_at: datetime
+
+
+class PresenceHeartbeatResponse(BaseModel):
+    """Heartbeat acknowledgement payload."""
+
+    active_database: str
+    expires_in_seconds: int
+    record: ActivePresenceResponse

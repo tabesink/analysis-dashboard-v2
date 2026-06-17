@@ -76,7 +76,6 @@ export function PinnedEventsOverlay() {
                 <ColorPicker
                   value={color}
                   onChange={(nextColor) => setEventOverrideColor(row.eventId, nextColor)}
-                  className="h-3 w-3 shrink-0"
                 />
                 <span className="min-w-0 flex-1 truncate text-xs" title={row.fullName}>
                   {row.fullName}

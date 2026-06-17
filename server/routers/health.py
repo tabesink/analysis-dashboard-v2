@@ -10,8 +10,6 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from server import __version__
-from server.services.export import is_database_import_in_progress
-
 router = APIRouter()
 
 
@@ -42,16 +40,8 @@ async def readiness_check(request: Request) -> HealthResponse | JSONResponse:
 
     Returns 503 if database is not accessible.
 
-    During a background database import, skip the DuckDB probe so Docker
-    healthchecks do not block on the live file while a staging copy is loaded.
+    Verifies the live DuckDB connection can serve queries.
     """
-    if is_database_import_in_progress():
-        return HealthResponse(
-            status="ready",
-            database="import_in_progress",
-            version=__version__,
-        )
-
     try:
         # Check database connectivity
         db = request.app.state.db

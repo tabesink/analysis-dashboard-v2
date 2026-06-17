@@ -9,7 +9,7 @@ import { ComparisonPlotInputsSection } from '@/components/dashboard/side-panel/C
 import { cn } from '@/lib/utils';
 import type { DamageComparisonViewModel } from '@/features/inspect-damage/lib/build-damage-comparison-view-model';
 import type { DamageComparisonState } from '@/types/damage-comparison';
-import { buildDamage2DPlotSpec, computeSharedAbsoluteDamageYDomain } from '../lib/build-damage-2d-plot-spec';
+import { buildDamage2DPlotSpec, computeCumulativeDamageYDomain, computeSharedEventDamageYDomain } from '../lib/build-damage-2d-plot-spec';
 import { DAMAGE_PLOT_TYPE_OPTIONS, type DamagePlotType } from '../lib/damage-plot-overlay-types';
 import { DAMAGE_PLOT_2D_GRID_CLASS } from '@/components/charts/plot-card-styles';
 import { Damage2DPlotCard } from './Damage2DPlotCard';
@@ -55,9 +55,9 @@ export function DamagePlotView({
       eventThreshold,
       eventNameByEventId,
     };
-    const sharedYDomain = computeSharedAbsoluteDamageYDomain(specInputBase);
-    const sharedDomainPlotTypes = new Set<DamagePlotType>([
-      'cumulative_by_channel',
+    const sharedEventYDomain = computeSharedEventDamageYDomain(specInputBase);
+    const cumulativeYDomain = computeCumulativeDamageYDomain(specInputBase);
+    const eventPlotTypes = new Set<DamagePlotType>([
       'reference_absolute_by_event',
       'target_absolute_by_event',
     ]);
@@ -69,7 +69,8 @@ export function DamagePlotView({
         buildDamage2DPlotSpec({
           ...specInputBase,
           plotType: option.value,
-          sharedYDomain: sharedDomainPlotTypes.has(option.value) ? sharedYDomain : undefined,
+          sharedEventYDomain: eventPlotTypes.has(option.value) ? sharedEventYDomain : undefined,
+          cumulativeYDomain: option.value === 'cumulative_by_channel' ? cumulativeYDomain : undefined,
         }),
       );
     }

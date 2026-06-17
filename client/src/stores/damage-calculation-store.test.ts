@@ -252,4 +252,36 @@ describe('damageCalculationStore', () => {
     expect(getDamageCalculationScopeState(scope)).toBeNull();
     expect(isDamageCalculationActive(scope)).toBe(false);
   });
+
+  it('marks scoped state as cancelled when cancellation reaches terminal state', async () => {
+    waitForDerivedDataTask.mockImplementation(
+      async (_taskId: string, onUpdate: (event: Record<string, unknown>) => void) => {
+        onUpdate({
+          task_id: 'damage-task-1',
+          task_kind: 'damage_calculation',
+          status: 'cancelling',
+          phase: 'calculating',
+          completed_events: 1,
+          total_events: 5,
+          progress_message: 'Cancelling safely...',
+        });
+        return {
+          task_id: 'damage-task-1',
+          task_kind: 'damage_calculation',
+          status: 'cancelled',
+          phase: 'cancelled',
+          completed_events: 1,
+          total_events: 5,
+        };
+      },
+    );
+
+    trackDamageCalculationTask({ scope, taskId: 'damage-task-1', queryClient });
+
+    await vi.waitFor(() => {
+      const scoped = getDamageCalculationScopeState(scope);
+      expect(scoped?.status).toBe('cancelled');
+      expect(scoped?.wizardStep).toBe('summary');
+    });
+  });
 });

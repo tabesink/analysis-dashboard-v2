@@ -1,11 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Loader2, RotateCcw, Save, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { MetadataDialogHeader } from '@/components/edit-metadata/MetadataDialogHeader';
+import {
+  DialogCardFooter,
+  DialogContentCard,
+} from '@/components/shared/dialog-layout';
 import { DurabilityScheduleTable } from '@/components/edit-metadata/DurabilityScheduleTable';
 import { ScheduleUploadDialog } from '@/components/edit-metadata/ScheduleUploadDialog';
 import type { DurabilityScheduleEditableField } from '@/components/edit-metadata/DurabilityScheduleTable';
@@ -35,6 +39,7 @@ export interface DurabilitySchedulePanelProps {
   scope: DurabilitySchedulePanelScope;
   canWrite?: boolean;
   showUploadAffordance?: boolean;
+  scopeAlert?: ReactNode;
   onDirtyChange?: (isDirty: boolean) => void;
 }
 
@@ -42,6 +47,7 @@ export function DurabilitySchedulePanel({
   scope,
   canWrite = true,
   showUploadAffordance = true,
+  scopeAlert,
   onDirtyChange,
 }: DurabilitySchedulePanelProps) {
   const { programId, version } = scope;
@@ -321,7 +327,7 @@ export function DurabilitySchedulePanel({
     }
 
     return (
-      <div className="mt-4 flex shrink-0 items-center justify-end gap-2 border-t pt-4">
+      <DialogCardFooter>
         {showUploadAffordance ? (
           <Button
             type="button"
@@ -377,9 +383,29 @@ export function DurabilitySchedulePanel({
             </>
           )}
         </Button>
-      </div>
+      </DialogCardFooter>
     );
   };
+
+  const scheduleContextBar =
+    programId && version ? (
+      <MetadataDialogHeader programId={programId} version={version} statusDraftValue={null} />
+    ) : undefined;
+
+  const scheduleCardProps = {
+    'data-testid': 'durability-schedule-panel' as const,
+    className: 'min-h-0 flex-1',
+    bodyClassName: 'flex min-h-0 flex-1 flex-col',
+    contextBar: scheduleContextBar,
+    alertBar: scopeAlert,
+  };
+
+  const schedulePanelDataAttrs = {
+    'data-testid': 'durability-schedule-panel',
+    'data-scope': `${programId}::${version}`,
+    'data-is-dirty': String(isScheduleDirty),
+    'data-can-write': String(canWrite),
+  } as const;
 
   const renderScheduleUploadDialog = () => {
     if (!showUploadAffordance || !canWrite || !programId || !version) {
@@ -412,31 +438,25 @@ export function DurabilitySchedulePanel({
 
   if (isDurabilityScheduleLoading) {
     return (
-      <div
-        data-testid="durability-schedule-panel"
-        data-scope={`${programId}::${version}`}
-        data-is-dirty={String(isScheduleDirty)}
-        data-can-write={String(canWrite)}
-        className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground"
-      >
-        <Loader2 className="size-4 animate-spin" />
-        Loading durability schedule...
+      <div {...schedulePanelDataAttrs}>
+        <DialogContentCard {...scheduleCardProps}>
+          <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            Loading durability schedule...
+          </div>
+        </DialogContentCard>
       </div>
     );
   }
 
   if (!hasAttachedSchedule) {
     return (
-      <div
-        data-testid="durability-schedule-panel"
-        data-scope={`${programId}::${version}`}
-        data-is-dirty={String(isScheduleDirty)}
-        data-can-write={String(canWrite)}
-        className="flex flex-col gap-2"
-      >
-        <Card className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden rounded-lg border bg-card py-0 shadow-subtle">
-          <CardContent className="flex min-h-0 flex-1 flex-col p-4">
-          <div className="flex flex-col items-center justify-center gap-4 py-12 text-center">
+      <div {...schedulePanelDataAttrs} className="flex min-h-0 flex-1 flex-col gap-2">
+        <DialogContentCard
+          {...scheduleCardProps}
+          footer={showUploadAffordance ? renderScheduleActionFooter() : undefined}
+        >
+          <div className="flex min-h-full flex-col items-center justify-center gap-4 py-12 text-center">
             <div className="space-y-2">
               <p className="text-sm text-muted-foreground">
                 No durability schedule is attached for this program/version.
@@ -452,9 +472,7 @@ export function DurabilitySchedulePanel({
               )}
             </div>
           </div>
-          {showUploadAffordance ? renderScheduleActionFooter() : null}
-          </CardContent>
-        </Card>
+        </DialogContentCard>
         {renderScheduleUploadDialog()}
       </div>
     );
@@ -465,37 +483,23 @@ export function DurabilitySchedulePanel({
   }
 
   return (
-    <div
-      data-testid="durability-schedule-panel"
-      data-scope={`${programId}::${version}`}
-      data-is-dirty={String(isScheduleDirty)}
-      data-can-write={String(canWrite)}
-      className="flex min-h-0 flex-1 flex-col gap-2"
-    >
-      <Card className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden rounded-lg border bg-card py-0 shadow-subtle">
-        <CardContent className="flex min-h-0 flex-1 flex-col p-4">
-        <div className="w-full shrink-0 text-xs text-muted-foreground">
-          Active schedule:{' '}
-          <span className="font-medium text-foreground">
-            {scheduleQuery.data.parse_preview.schedule_id ?? scheduleQuery.data.source_filename}
-          </span>
-          {' · '}
-          {scheduleQuery.data.parse_preview.entry_count} pattern
-          {scheduleQuery.data.parse_preview.entry_count === 1 ? '' : 's'}
-          {' · '}
-          multiplier {scheduleDraftMultiplier ?? scheduleQuery.data.parse_preview.multiplier}
-        </div>
+    <div {...schedulePanelDataAttrs} className="flex min-h-0 flex-1 flex-col gap-2">
+      <DialogContentCard
+        {...scheduleCardProps}
+        footer={renderScheduleActionFooter() ?? undefined}
+      >
         <DurabilityScheduleTable
           rows={scheduleDraftRows}
           globalMultiplier={scheduleDraftMultiplier}
           editable={canWrite}
+          helperText={`Active schedule: ${
+            scheduleQuery.data.parse_preview.schedule_id ?? scheduleQuery.data.source_filename
+          }`}
           highlightedFieldsByRowId={highlightedFieldsByRowId}
           onRowChange={handleScheduleRowChange}
           onMultiplierChange={handleScheduleMultiplierChange}
         />
-        {renderScheduleActionFooter()}
-        </CardContent>
-      </Card>
+      </DialogContentCard>
       {renderScheduleUploadDialog()}
     </div>
   );

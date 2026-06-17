@@ -1,41 +1,40 @@
-"""Database export/import endpoints for portability (Parquet ZIP)."""
+"""Database export endpoints and legacy import tombstones."""
 
 import logging
 import re
-import tempfile
 import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import (
-    APIRouter,
-    BackgroundTasks,
-    Depends,
-    File,
-    HTTPException,
-    Request,
-    UploadFile,
-    status,
-)
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from server.config import get_settings
 from server.dependencies import AdminRequiredDep, get_export_service
+from server.services.operation_admission import (
+    OperationAdmissionError,
+    assert_can_start_database_export,
+    assert_can_switch_or_delete_database,
+    exclusive_database_operation,
+)
 from server.services.export import ExportService, _update_task, get_task
 from server.services.session import SessionManager
 from server.storage.database import UnifiedStore
 from server.storage.migrations import MigrationRunner
+from server.upload.task_kinds import (
+    TASK_KIND_DATABASE_CREATE,
+    TASK_KIND_DATABASE_DELETE,
+    TASK_KIND_DATABASE_SWITCH,
+)
 from server.utils.logging import get_audit_logger
 
 router = APIRouter(prefix="/export")
 audit_log = get_audit_logger()
 logger = logging.getLogger(__name__)
-CHUNK_SIZE = 8 * 1024 * 1024
 STALL_THRESHOLD_EXPORT_SEC = 120  # 2 minutes with no heartbeat = likely dead export thread
-STALL_THRESHOLD_IMPORT_SEC = 900  # 15 minutes; large backup + Parquet loads can be slow
 DELETE_CONFIRMATION_PREFIX = "DELETE "
 _DB_LABEL_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
 _DB_SWITCH_LOCK = threading.RLock()
@@ -53,38 +52,8 @@ class DatabaseInfoResponse(BaseModel):
     event_count: int
     program_count: int
     max_upload_size_mb: int = Field(
-        description="Maximum allowed size for database import ZIP uploads (MB)",
+        description="Maximum allowed size for large upload payloads (MB)",
     )
-
-
-class SchemaCompatibility(BaseModel):
-    """Schema compatibility information."""
-
-    is_compatible: bool = Field(description="Whether the schema is compatible")
-    is_legacy: bool = Field(description="Whether this is a legacy database without schema metadata")
-    imported_schema_version: int | None = Field(description="Schema version in imported database")
-    current_schema_version: int = Field(description="Current schema version")
-    schema_version_match: bool = Field(description="Whether schema versions match")
-    missing_columns: list[str] = Field(description="Filter columns in current but not in imported")
-    extra_columns: list[str] = Field(description="Filter columns in imported but not in current")
-
-
-class ValidationResponse(BaseModel):
-    """Database validation response."""
-
-    valid: bool = Field(description="Whether the database is valid for import")
-    event_count: int = Field(description="Number of events in database")
-    size_mb: float = Field(description="Size of archive in MB")
-    tables: list[str] = Field(description="Parquet tables found in archive")
-    schema_compatibility: SchemaCompatibility = Field(description="Schema compatibility info")
-    warnings: list[str] = Field(default_factory=list, description="Validation warnings")
-
-
-class UploadResponse(BaseModel):
-    """Registered upload ready for import confirmation."""
-
-    upload_id: str
-    validation: ValidationResponse
 
 
 class StartTaskResponse(BaseModel):
@@ -165,24 +134,6 @@ class TaskStatusResponse(BaseModel):
     error: str | None = None
     result: dict[str, Any] | None = None
     updated_at: float = 0.0
-
-
-def _validation_warnings(compat: dict[str, Any]) -> list[str]:
-    warnings: list[str] = []
-    if compat.get("is_legacy"):
-        warnings.append(
-            "Legacy export without schema metadata — current schema configuration will be applied after import",
-        )
-    if compat.get("missing_columns"):
-        warnings.append(f"Missing filter columns: {', '.join(compat['missing_columns'])}")
-    if compat.get("extra_columns"):
-        warnings.append(f"Extra filter columns in export: {', '.join(compat['extra_columns'])}")
-    if not compat.get("schema_version_match") and not compat.get("is_legacy"):
-        warnings.append(
-            f"Schema version mismatch: imported={compat.get('imported_schema_version')}, "
-            f"current={compat.get('current_schema_version')}",
-        )
-    return warnings
 
 
 def _list_database_files() -> list[Path]:
@@ -288,35 +239,6 @@ def _swap_active_database(request: Request, new_store: UnifiedStore) -> tuple[Pa
         return previous_path, [_database_name(path) for path in _list_database_files()]
 
 
-async def stream_upload_to_disk(file: UploadFile, max_bytes: int) -> Path:
-    """Stream upload to a temp file; enforce max compressed size."""
-    settings = _settings()
-    scratch = settings.scratch_dir
-    scratch.mkdir(parents=True, exist_ok=True)
-    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False, dir=str(scratch))
-    tmp_path = Path(tmp.name)
-    total = 0
-    try:
-        while chunk := await file.read(CHUNK_SIZE):
-            total += len(chunk)
-            if total > max_bytes:
-                tmp.close()
-                tmp_path.unlink(missing_ok=True)
-                raise HTTPException(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail=f"Upload exceeds max size of {settings.max_upload_size_mb} MB",
-                )
-            tmp.write(chunk)
-        tmp.close()
-        return tmp_path
-    except HTTPException:
-        raise
-    except Exception:
-        tmp.close()
-        tmp_path.unlink(missing_ok=True)
-        raise
-
-
 @router.get(
     "/database/list",
     response_model=DatabaseCatalogResponse,
@@ -347,36 +269,43 @@ async def create_new_database(
     payload: CreateDatabaseRequest,
 ) -> CreateDatabaseResponse:
     """Create dashboard-<name>-<timestamp>.db without changing the active runtime DB."""
-    label = _validate_database_label(payload.name)
-    target_path = _next_database_path(label)
-    new_store = _initialize_store(target_path)
     try:
-        _run_database_health_checks(new_store)
-    except Exception:
-        new_store.close()
-        target_path.unlink(missing_ok=True)
-        raise
+        with exclusive_database_operation(TASK_KIND_DATABASE_CREATE):
+            label = _validate_database_label(payload.name)
+            target_path = _next_database_path(label)
+            new_store = _initialize_store(target_path)
+            try:
+                _run_database_health_checks(new_store)
+            except Exception:
+                new_store.close()
+                target_path.unlink(missing_ok=True)
+                raise
 
-    new_store.close()
-    current_path: Path = request.app.state.db.db_path
-    databases = [_database_name(path) for path in _list_database_files()]
-    if _database_name(target_path) not in databases:
-        databases.append(_database_name(target_path))
-        databases.sort()
-    audit_log.info(
-        "db create-new created managed database",
-        extra={
-            "event": "db_create_new_created",
-            "reason": f"created={target_path.name} active={current_path.name}",
-        },
-    )
-    return CreateDatabaseResponse(
-        created_database=target_path.name,
-        created_path=str(target_path),
-        current_database=current_path.name,
-        current_path=str(current_path),
-        databases=databases,
-    )
+            new_store.close()
+            current_path: Path = request.app.state.db.db_path
+            databases = [_database_name(path) for path in _list_database_files()]
+            if _database_name(target_path) not in databases:
+                databases.append(_database_name(target_path))
+                databases.sort()
+            audit_log.info(
+                "db create-new created managed database",
+                extra={
+                    "event": "db_create_new_created",
+                    "reason": f"created={target_path.name} active={current_path.name}",
+                },
+            )
+            return CreateDatabaseResponse(
+                created_database=target_path.name,
+                created_path=str(target_path),
+                current_database=current_path.name,
+                current_path=str(current_path),
+                databases=databases,
+            )
+    except OperationAdmissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.to_http_detail(),
+        ) from exc
 
 
 def _validate_database_filename(target_name: str) -> str:
@@ -394,48 +323,60 @@ def _validate_database_filename(target_name: str) -> str:
     response_model=SwitchDatabaseResponse,
 )
 async def connect_database(
-    _: AdminRequiredDep,
+    admin_user: AdminRequiredDep,
     request: Request,
     payload: ConnectDatabaseRequest,
 ) -> SwitchDatabaseResponse:
     """Connect active runtime to an existing managed dashboard*.db file."""
-    settings = _settings()
-    target_name = _validate_database_filename(payload.database_name.strip())
-    target_path = settings.data_root / target_name
-    if not target_path.is_file():
+    try:
+        assert_can_switch_or_delete_database(
+            request.app.state.db,
+            operation=TASK_KIND_DATABASE_SWITCH,
+            requesting_user_id=admin_user["id"],
+        )
+        with exclusive_database_operation(TASK_KIND_DATABASE_SWITCH):
+            settings = _settings()
+            target_name = _validate_database_filename(payload.database_name.strip())
+            target_path = settings.data_root / target_name
+            if not target_path.is_file():
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Database not found: {target_name}",
+                )
+
+            current_path: Path = request.app.state.db.db_path
+            if current_path.resolve() == target_path.resolve():
+                databases = [_database_name(path) for path in _list_database_files()]
+                return SwitchDatabaseResponse(
+                    active_database=current_path.name,
+                    active_path=str(current_path),
+                    previous_database=current_path.name,
+                    previous_path=str(current_path),
+                    databases=databases,
+                )
+
+            new_store = _initialize_store(target_path)
+            previous_path, databases = _swap_active_database(request, new_store)
+            active_path = request.app.state.db.db_path
+            audit_log.info(
+                "db connect switched active database",
+                extra={
+                    "event": "db_connect_switched",
+                    "reason": f"from={previous_path.name} to={active_path.name}",
+                },
+            )
+            return SwitchDatabaseResponse(
+                active_database=active_path.name,
+                active_path=str(active_path),
+                previous_database=previous_path.name,
+                previous_path=str(previous_path),
+                databases=databases,
+            )
+    except OperationAdmissionError as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Database not found: {target_name}",
-        )
-
-    current_path: Path = request.app.state.db.db_path
-    if current_path.resolve() == target_path.resolve():
-        databases = [_database_name(path) for path in _list_database_files()]
-        return SwitchDatabaseResponse(
-            active_database=current_path.name,
-            active_path=str(current_path),
-            previous_database=current_path.name,
-            previous_path=str(current_path),
-            databases=databases,
-        )
-
-    new_store = _initialize_store(target_path)
-    previous_path, databases = _swap_active_database(request, new_store)
-    active_path = request.app.state.db.db_path
-    audit_log.info(
-        "db connect switched active database",
-        extra={
-            "event": "db_connect_switched",
-            "reason": f"from={previous_path.name} to={active_path.name}",
-        },
-    )
-    return SwitchDatabaseResponse(
-        active_database=active_path.name,
-        active_path=str(active_path),
-        previous_database=previous_path.name,
-        previous_path=str(previous_path),
-        databases=databases,
-    )
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.to_http_detail(),
+        ) from exc
 
 
 @router.post(
@@ -443,58 +384,70 @@ async def connect_database(
     response_model=DeleteDatabaseResponse,
 )
 async def delete_database(
-    _: AdminRequiredDep,
+    admin_user: AdminRequiredDep,
     request: Request,
     payload: DeleteDatabaseRequest,
 ) -> DeleteDatabaseResponse:
     """Delete a non-active managed dashboard*.db file after typed confirmation."""
-    settings = _settings()
-    target_name = _validate_database_filename(payload.database_name.strip())
-    if not target_name.startswith("dashboard"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only managed dashboard*.db files can be deleted",
+    try:
+        assert_can_switch_or_delete_database(
+            request.app.state.db,
+            operation=TASK_KIND_DATABASE_DELETE,
+            requesting_user_id=admin_user["id"],
         )
-    expected_confirmation = f"{DELETE_CONFIRMATION_PREFIX}{target_name}"
-    if payload.confirmation.strip() != expected_confirmation:
+        with exclusive_database_operation(TASK_KIND_DATABASE_DELETE):
+            settings = _settings()
+            target_name = _validate_database_filename(payload.database_name.strip())
+            if not target_name.startswith("dashboard"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Only managed dashboard*.db files can be deleted",
+                )
+            expected_confirmation = f"{DELETE_CONFIRMATION_PREFIX}{target_name}"
+            if payload.confirmation.strip() != expected_confirmation:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Confirmation mismatch. Type exactly: {expected_confirmation}",
+                )
+
+            current_path: Path = request.app.state.db.db_path
+            if current_path.name == target_name:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot delete the currently active database. Connect to another database first.",
+                )
+
+            target_path = settings.data_root / target_name
+            if not target_path.is_file():
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Database not found: {target_name}",
+                )
+
+            target_path.unlink(missing_ok=False)
+            for suffix in (".wal", ".tmp"):
+                sidecar = target_path.with_suffix(target_path.suffix + suffix)
+                sidecar.unlink(missing_ok=True)
+
+            databases = [_database_name(path) for path in _list_database_files()]
+            audit_log.info(
+                "db delete removed managed database",
+                extra={
+                    "event": "db_delete_removed",
+                    "reason": f"deleted={target_name} active={current_path.name}",
+                },
+            )
+            return DeleteDatabaseResponse(
+                deleted_database=target_name,
+                current_database=current_path.name,
+                current_path=str(current_path),
+                databases=databases,
+            )
+    except OperationAdmissionError as exc:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Confirmation mismatch. Type exactly: {expected_confirmation}",
-        )
-
-    current_path: Path = request.app.state.db.db_path
-    if current_path.name == target_name:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot delete the currently active database. Connect to another database first.",
-        )
-
-    target_path = settings.data_root / target_name
-    if not target_path.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Database not found: {target_name}",
-        )
-
-    target_path.unlink(missing_ok=False)
-    for suffix in (".wal", ".tmp"):
-        sidecar = target_path.with_suffix(target_path.suffix + suffix)
-        sidecar.unlink(missing_ok=True)
-
-    databases = [_database_name(path) for path in _list_database_files()]
-    audit_log.info(
-        "db delete removed managed database",
-        extra={
-            "event": "db_delete_removed",
-            "reason": f"deleted={target_name} active={current_path.name}",
-        },
-    )
-    return DeleteDatabaseResponse(
-        deleted_database=target_name,
-        current_database=current_path.name,
-        current_path=str(current_path),
-        databases=databases,
-    )
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.to_http_detail(),
+        ) from exc
 
 
 @router.get(
@@ -522,6 +475,13 @@ async def start_parquet_export(
     export_service: Annotated[ExportService, Depends(get_export_service)],
 ) -> StartTaskResponse:
     """Start background export to Parquet ZIP (admin)."""
+    try:
+        assert_can_start_database_export()
+    except OperationAdmissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.to_http_detail(),
+        ) from exc
     task_id = export_service.start_export_task()
     audit_log.info(
         "db export started",
@@ -538,16 +498,14 @@ async def get_parquet_task_status(
     _: AdminRequiredDep,
     task_id: str,
 ) -> TaskStatusResponse:
-    """Poll export or import task status (admin)."""
+    """Poll export task status (admin)."""
     t = get_task(task_id)
     if not t:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown task_id")
 
     if t.status == "running" and t.updated_at > 0:
         elapsed = time.time() - t.updated_at
-        stall_threshold = (
-            STALL_THRESHOLD_IMPORT_SEC if t.kind == "import" else STALL_THRESHOLD_EXPORT_SEC
-        )
+        stall_threshold = STALL_THRESHOLD_EXPORT_SEC
         if elapsed > stall_threshold:
             stall_minutes = int(stall_threshold // 60)
             _update_task(
@@ -629,6 +587,7 @@ async def upload_parquet_export_for_import(
     file: UploadFile = File(..., description="Parquet export ZIP"),
 ) -> dict[str, str]:
     """Database import upload is removed from the active product surface."""
+    _ = file
     raise HTTPException(
         status_code=status.HTTP_410_GONE,
         detail=(
@@ -647,7 +606,7 @@ async def cancel_parquet_task(
     task_id: str,
     export_service: Annotated[ExportService, Depends(get_export_service)],
 ) -> dict[str, bool]:
-    """Cancel a running export or import background task (admin)."""
+    """Cancel a running export background task (admin)."""
     ok = export_service.cancel_task(task_id)
     if not ok:
         raise HTTPException(

@@ -114,36 +114,34 @@ export default function InspectDamagePage() {
           onToggleCollapse={() => setSidePanelCollapsed((prev) => !prev)}
           expandedWidth="w-[320px]"
         >
-          <div className="flex-1 min-h-0 flex flex-col w-full">
-            <ScrollArea className="flex-1 min-h-0 w-full">
-              <div className="p-5 space-y-5">
-                {!isPanelReady ? (
-                  <div className="space-y-4">
-                    <Skeleton className="h-5 w-32 rounded" />
-                    <Skeleton className="h-24 w-full rounded-lg" />
+          <ScrollArea className="flex-1 min-h-0 w-full">
+            <div className="p-5 space-y-5">
+              {!isPanelReady ? (
+                <div className="space-y-4">
+                  <Skeleton className="h-5 w-32 rounded" />
+                  <Skeleton className="h-24 w-full rounded-lg" />
+                </div>
+              ) : (
+                <>
+                  <GlobalFilters
+                    isCollapsed={sidePanelCollapsed}
+                    onExpand={expandSidePanel}
+                  />
+                  <div className="py-1">
+                    <Separator className="bg-border/70" />
                   </div>
-                ) : (
-                  <>
-                    <GlobalFilters
-                      isCollapsed={sidePanelCollapsed}
-                      onExpand={expandSidePanel}
-                    />
-                    <div className="py-1">
-                      <Separator className="bg-border/70" />
-                    </div>
-                    <ComparisonLoadDataSections
-                      comparison={comparison}
-                      events={events}
-                      isLoading={isEventsLoading}
-                      onUpdateComparison={updateComparison}
-                      isCollapsed={sidePanelCollapsed}
-                      onExpand={expandSidePanel}
-                    />
-                  </>
-                )}
-              </div>
-            </ScrollArea>
-          </div>
+                  <ComparisonLoadDataSections
+                    comparison={comparison}
+                    events={events}
+                    isLoading={isEventsLoading}
+                    onUpdateComparison={updateComparison}
+                    isCollapsed={sidePanelCollapsed}
+                    onExpand={expandSidePanel}
+                  />
+                </>
+              )}
+            </div>
+          </ScrollArea>
         </SidePanelLayout>
 
         <div className="flex-1 min-w-0 min-h-0">

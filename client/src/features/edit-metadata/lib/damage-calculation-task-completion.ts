@@ -11,7 +11,7 @@ export interface DamageCalculationCompletionToast {
 
 export interface DamageCalculationCompletionBehavior {
   completionResult: DamageCalculationCompletionResult;
-  status: 'completed' | 'failed';
+  status: 'completed' | 'failed' | 'cancelled';
   modalOpen: boolean;
   toast?: DamageCalculationCompletionToast;
 }
@@ -22,7 +22,12 @@ export function resolveDamageCalculationCompletionBehavior(params: {
   modalWasOpen: boolean;
 }): DamageCalculationCompletionBehavior {
   const completionResult = buildDamageCalculationCompletionResult(params.event);
-  const status = params.event.status === 'failed' ? 'failed' : 'completed';
+  const status =
+    params.event.status === 'failed'
+      ? 'failed'
+      : params.event.status === 'cancelled'
+        ? 'cancelled'
+        : 'completed';
 
   if (params.origin === 'automatic' && status === 'failed') {
     return {

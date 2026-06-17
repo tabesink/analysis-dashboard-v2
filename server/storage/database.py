@@ -8,7 +8,7 @@ import threading
 import importlib
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +17,7 @@ duckdb = importlib.import_module("duckdb")
 
 from server.modules.filter_semantics import build_filter_plan
 from server.upload.task_kinds import (
+    ACTIVE_UPLOAD_TASK_KINDS,
     ACTIVE_TASK_STATUSES,
     DERIVED_DATA_TASK_KINDS,
     TASK_KIND_DAMAGE_CALCULATION,
@@ -37,6 +38,7 @@ ParquetProgressFn = Callable[[str | None, int, int], None]
 ImportProgressFn = Callable[[str, str, int, int, str | None], None]
 
 _BACKUP_COPY_CHUNK_BYTES = 8 * 1024 * 1024
+UPLOAD_TASK_HEARTBEAT_STALE_SECONDS = 180
 
 
 def _copy_file_with_progress(
@@ -2015,6 +2017,189 @@ class UnifiedStore:
         conn.execute("DELETE FROM event_previews WHERE event_id = ?", [event_id])
         conn.execute("DELETE FROM dim_event WHERE event_id = ?", [event_id])
 
+    def _failed_upload_task_event_ids(self, task: dict[str, Any]) -> list[str]:
+        """Read committed event ids recorded on a failed folder upload task."""
+        result = task.get("result_json")
+        if not isinstance(result, dict):
+            return []
+        event_ids = result.get("event_ids")
+        if not isinstance(event_ids, list):
+            return []
+        return [str(event_id) for event_id in event_ids if isinstance(event_id, str)]
+
+    def cleanup_failed_folder_upload_task(self, task_id: str) -> dict[str, Any]:
+        """Delete committed partial rows for a failed or cancelled folder upload task."""
+        task = self.get_upload_task(task_id)
+        if task is None:
+            raise ValueError("Unknown upload task")
+        if str(task.get("task_kind") or TASK_KIND_FOLDER_UPLOAD) != TASK_KIND_FOLDER_UPLOAD:
+            raise ValueError("Task is not a folder upload")
+        if str(task.get("status") or "") not in {"failed", "cancelled"}:
+            raise ValueError("Only failed or cancelled folder uploads can be cleaned up")
+
+        candidate_event_ids = self._failed_upload_task_event_ids(task)
+        if not candidate_event_ids:
+            return {
+                "task_id": task_id,
+                "deleted_event_ids": [],
+                "deleted_event_count": 0,
+                "deleted_artifact_count": 0,
+                "skipped_artifact_paths": [],
+            }
+
+        placeholders = ", ".join(["?"] * len(candidate_event_ids))
+        event_rows = self.read_connection.execute(
+            f"""
+            SELECT event_id
+            FROM dim_event
+            WHERE event_id IN ({placeholders})
+            """,
+            candidate_event_ids,
+        ).fetchall()
+        existing_event_ids = [str(row[0]) for row in event_rows]
+        if not existing_event_ids:
+            return {
+                "task_id": task_id,
+                "deleted_event_ids": [],
+                "deleted_event_count": 0,
+                "deleted_artifact_count": 0,
+                "skipped_artifact_paths": [],
+            }
+
+        event_placeholders = ", ".join(["?"] * len(existing_event_ids))
+        artifact_rows = self.read_connection.execute(
+            f"""
+            SELECT artifact_id, artifact_path
+            FROM ingestion_artifacts
+            WHERE event_id IN ({event_placeholders})
+            ORDER BY artifact_id
+            """,
+            existing_event_ids,
+        ).fetchall()
+        artifact_ids = [int(row[0]) for row in artifact_rows]
+        artifact_paths = [str(row[1]) for row in artifact_rows if row[1] is not None]
+
+        run_rows = self.read_connection.execute(
+            f"""
+            SELECT DISTINCT r.ingestion_run_id, r.source_artifact_id, r.derived_artifact_id
+            FROM ingestion_runs r
+            JOIN event_ingestion_links l
+              ON l.ingestion_run_id = r.ingestion_run_id
+            WHERE l.event_id IN ({event_placeholders})
+            """,
+            existing_event_ids,
+        ).fetchall()
+        run_ids = [int(row[0]) for row in run_rows]
+        source_artifact_ids = [
+            int(row[1]) for row in run_rows if row[1] is not None
+        ]
+        derived_artifact_ids = [
+            int(row[2]) for row in run_rows if row[2] is not None
+        ]
+
+        with self.write_connection() as conn:
+            conn.execute(
+                f"DELETE FROM measurements_raw WHERE event_id IN ({event_placeholders})",
+                existing_event_ids,
+            )
+            conn.execute(
+                f"DELETE FROM measurements_lttb WHERE event_id IN ({event_placeholders})",
+                existing_event_ids,
+            )
+            conn.execute(
+                f"DELETE FROM event_custom_field_values WHERE event_id IN ({event_placeholders})",
+                existing_event_ids,
+            )
+            conn.execute(
+                f"DELETE FROM event_derived_data WHERE event_id IN ({event_placeholders})",
+                existing_event_ids,
+            )
+            conn.execute(
+                f"DELETE FROM event_previews WHERE event_id IN ({event_placeholders})",
+                existing_event_ids,
+            )
+            conn.execute(
+                f"DELETE FROM event_ingestion_links WHERE event_id IN ({event_placeholders})",
+                existing_event_ids,
+            )
+            conn.execute(
+                f"DELETE FROM dim_event WHERE event_id IN ({event_placeholders})",
+                existing_event_ids,
+            )
+            if artifact_ids:
+                artifact_placeholders = ", ".join(["?"] * len(artifact_ids))
+                conn.execute(
+                    f"DELETE FROM ingestion_artifacts WHERE artifact_id IN ({artifact_placeholders})",
+                    artifact_ids,
+                )
+            if run_ids:
+                run_placeholders = ", ".join(["?"] * len(run_ids))
+                conn.execute(
+                    f"""
+                    DELETE FROM ingestion_runs
+                    WHERE ingestion_run_id IN ({run_placeholders})
+                      AND ingestion_run_id NOT IN (
+                          SELECT DISTINCT ingestion_run_id
+                          FROM event_ingestion_links
+                      )
+                    """,
+                    run_ids,
+                )
+            if derived_artifact_ids:
+                derived_placeholders = ", ".join(["?"] * len(derived_artifact_ids))
+                conn.execute(
+                    f"""
+                    DELETE FROM derived_artifacts
+                    WHERE artifact_id IN ({derived_placeholders})
+                      AND artifact_id NOT IN (
+                          SELECT DISTINCT derived_artifact_id
+                          FROM ingestion_runs
+                          WHERE derived_artifact_id IS NOT NULL
+                      )
+                    """,
+                    derived_artifact_ids,
+                )
+            if source_artifact_ids:
+                source_placeholders = ", ".join(["?"] * len(source_artifact_ids))
+                conn.execute(
+                    f"""
+                    DELETE FROM source_artifacts
+                    WHERE artifact_id IN ({source_placeholders})
+                      AND artifact_id NOT IN (
+                          SELECT DISTINCT source_artifact_id
+                          FROM ingestion_runs
+                          WHERE source_artifact_id IS NOT NULL
+                      )
+                    """,
+                    source_artifact_ids,
+                )
+
+        deleted_files = 0
+        skipped_files: list[str] = []
+        data_root = self.db_path.parent.resolve()
+        channel_map_root = (data_root / "artifacts" / "channel-map").resolve()
+        for artifact_path in artifact_paths:
+            path = Path(artifact_path)
+            abs_path = path if path.is_absolute() else data_root / path
+            try:
+                resolved = abs_path.resolve()
+                if resolved == channel_map_root or channel_map_root not in resolved.parents:
+                    skipped_files.append(artifact_path)
+                    continue
+                if resolved.is_file():
+                    resolved.unlink()
+                    deleted_files += 1
+            except OSError:
+                skipped_files.append(artifact_path)
+
+        return {
+            "task_id": task_id,
+            "deleted_event_ids": existing_event_ids,
+            "deleted_event_count": len(existing_event_ids),
+            "deleted_artifact_count": deleted_files,
+            "skipped_artifact_paths": skipped_files,
+        }
+
     def preview_program_version_scope_delete(
         self,
         program_id: str,
@@ -2543,6 +2728,40 @@ class UnifiedStore:
                 [action, user_id, event_id, json.dumps(details) if details else None],
             )
 
+    def try_log_audit(
+        self,
+        action: str,
+        event_id: str | None = None,
+        user_id: str | None = None,
+        details: dict[str, Any] | None = None,
+        *,
+        lock_timeout_seconds: float = 0.05,
+    ) -> bool:
+        """Best-effort audit insert that skips when the DB lock is contended."""
+        import json
+
+        timeout_seconds = max(float(lock_timeout_seconds), 0.0)
+        acquired = self._db_lock.acquire(timeout=timeout_seconds)
+        if not acquired:
+            return False
+        try:
+            self._ensure_connection_unlocked()
+            conn = self._connection
+            if conn is None:
+                return False
+            conn.execute(
+                """
+                INSERT INTO audit_log (action, user_id, event_id, details)
+                VALUES (?, ?, ?, ?)
+                """,
+                [action, user_id, event_id, json.dumps(details) if details else None],
+            )
+            return True
+        except Exception:
+            return False
+        finally:
+            self._db_lock.release()
+
     # ===== FILE HASH OPERATIONS =====
 
     def get_file_hashes(self, program_id: str, version: str) -> set[str]:
@@ -2580,17 +2799,18 @@ class UnifiedStore:
         task_kind: str = TASK_KIND_FOLDER_UPLOAD,
         phase: str = "upload_received",
         scope: dict[str, str] | None = None,
+        runner_id: str | None = None,
     ) -> None:
         """Create upload task row."""
-        expires_at = datetime.utcnow() + timedelta(minutes=ttl_minutes)
+        expires_at = datetime.now(UTC) + timedelta(minutes=ttl_minutes)
         with self.write_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO upload_tasks (
                     task_id, created_by_user_id, status, phase, task_kind,
-                    completed_events, total_events, scope_json, expires_at
+                    completed_events, total_events, scope_json, expires_at, runner_id
                 )
-                VALUES (?, ?, 'queued', ?, ?, 0, ?, ?, ?)
+                VALUES (?, ?, 'queued', ?, ?, 0, ?, ?, ?, ?)
                 """,
                 [
                     task_id,
@@ -2600,8 +2820,58 @@ class UnifiedStore:
                     total_events,
                     json.dumps(scope) if scope is not None else None,
                     expires_at,
+                    runner_id,
                 ],
             )
+
+    def reconcile_stale_upload_tasks(
+        self,
+        *,
+        heartbeat_timeout_seconds: int = UPLOAD_TASK_HEARTBEAT_STALE_SECONDS,
+    ) -> int:
+        """Fail active upload-task rows whose worker heartbeat has expired."""
+        if heartbeat_timeout_seconds <= 0:
+            heartbeat_timeout_seconds = UPLOAD_TASK_HEARTBEAT_STALE_SECONDS
+        status_placeholders = ", ".join("?" for _ in ACTIVE_TASK_STATUSES)
+        stale_message = (
+            "Task marked failed because the worker heartbeat expired. "
+            "The worker stopped reporting progress and was failed for safety."
+        )
+        stale_query = f"""
+            SELECT task_id
+            FROM upload_tasks
+            WHERE task_kind IN (?, ?, ?)
+              AND status IN ({status_placeholders})
+              AND COALESCE(last_heartbeat_at, started_at, updated_at, created_at)
+                  < (CURRENT_TIMESTAMP - (? * INTERVAL '1 second'))
+        """
+        rows = self.read_connection.execute(
+            stale_query,
+            [*ACTIVE_UPLOAD_TASK_KINDS, *ACTIVE_TASK_STATUSES, heartbeat_timeout_seconds],
+        ).fetchall()
+        stale_ids = [str(row[0]) for row in rows if row and row[0]]
+        if not stale_ids:
+            return 0
+        task_id_placeholders = ", ".join("?" for _ in stale_ids)
+        update_query = f"""
+            UPDATE upload_tasks
+            SET
+                status = 'failed',
+                phase = 'failed',
+                sub_phase = NULL,
+                progress_message = NULL,
+                current_event = NULL,
+                error = CASE
+                    WHEN error IS NULL OR TRIM(error) = '' THEN ?
+                    ELSE error
+                END,
+                finished_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE task_id IN ({task_id_placeholders})
+        """
+        with self.write_connection() as conn:
+            conn.execute(update_query, [stale_message, *stale_ids])
+        return len(stale_ids)
 
     def find_active_derived_data_task(
         self,
@@ -2609,12 +2879,14 @@ class UnifiedStore:
         version: str,
     ) -> dict[str, Any] | None:
         """Return the active derived-data task for a program/version scope, if any."""
+        self.reconcile_stale_upload_tasks()
+        status_placeholders = ", ".join("?" for _ in ACTIVE_TASK_STATUSES)
         row = self.read_connection.execute(
-            """
+            f"""
             SELECT *
             FROM upload_tasks
             WHERE task_kind IN (?, ?)
-              AND status IN (?, ?)
+              AND status IN ({status_placeholders})
               AND json_extract_string(scope_json, '$.program_id') = ?
               AND json_extract_string(scope_json, '$.version') = ?
             ORDER BY created_at DESC
@@ -2670,6 +2942,11 @@ class UnifiedStore:
         current_event: Any = "__UNCHANGED__",
         error: str | None = None,
         result: dict[str, Any] | None = None,
+        started_at: datetime | str | None = None,
+        cancel_requested_at: datetime | str | None = None,
+        finished_at: datetime | str | None = None,
+        heartbeat_at: datetime | str | None = None,
+        runner_id: str | None = None,
     ) -> None:
         """Update upload task status fields."""
         assignments: list[str] = ["updated_at = CURRENT_TIMESTAMP"]
@@ -2701,6 +2978,30 @@ class UnifiedStore:
         if result is not None:
             assignments.append("result_json = ?")
             params.append(json.dumps(result))
+        if started_at is not None:
+            assignments.append("started_at = ?")
+            params.append(started_at)
+        if cancel_requested_at is not None:
+            assignments.append("cancel_requested_at = ?")
+            params.append(cancel_requested_at)
+        if finished_at is not None:
+            assignments.append("finished_at = ?")
+            params.append(finished_at)
+        if heartbeat_at is not None:
+            assignments.append("last_heartbeat_at = ?")
+            params.append(heartbeat_at)
+        if runner_id is not None:
+            assignments.append("runner_id = ?")
+            params.append(runner_id)
+        if status == "running":
+            if started_at is None:
+                assignments.append("started_at = COALESCE(started_at, CURRENT_TIMESTAMP)")
+            if heartbeat_at is None:
+                assignments.append("last_heartbeat_at = CURRENT_TIMESTAMP")
+        elif status == "cancelling" and heartbeat_at is None:
+            assignments.append("last_heartbeat_at = CURRENT_TIMESTAMP")
+        if status in {"completed", "failed", "cancelled"} and finished_at is None:
+            assignments.append("finished_at = CURRENT_TIMESTAMP")
 
         if len(assignments) == 1:
             return
@@ -2728,6 +3029,65 @@ class UnifiedStore:
             return None
         columns = [desc[0] for desc in self.read_connection.description]
         return self._normalize_upload_task_row(dict(zip(columns, row)))
+
+    def list_upload_tasks_for_discovery(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        """List active and recent actionable upload-task rows for reconnect recovery."""
+        if limit < 1:
+            limit = 1
+        query = """
+            SELECT *
+            FROM upload_tasks
+            WHERE task_kind IN (?, ?, ?)
+              AND expires_at >= CURRENT_TIMESTAMP
+              AND (
+                status IN (?, ?, ?)
+                OR (
+                    task_kind = ?
+                    AND status IN ('failed', 'cancelled')
+                )
+              )
+            ORDER BY updated_at DESC
+            LIMIT ?
+        """
+        rows = self.read_connection.execute(
+            query,
+            [
+                *ACTIVE_UPLOAD_TASK_KINDS,
+                *ACTIVE_TASK_STATUSES,
+                TASK_KIND_FOLDER_UPLOAD,
+                int(limit),
+            ],
+        ).fetchall()
+        columns = [desc[0] for desc in self.read_connection.description]
+        return [
+            self._normalize_upload_task_row(dict(zip(columns, row)))
+            for row in rows
+        ]
+
+    def request_upload_task_cancel(self, task_id: str) -> dict[str, Any] | None:
+        """Persist cancel intent for queued/running upload tasks."""
+        task = self.get_upload_task(task_id)
+        if task is None:
+            return None
+
+        status = str(task.get("status") or "queued")
+        if status not in {"queued", "running"}:
+            return task
+
+        with self.write_connection() as conn:
+            conn.execute(
+                """
+                UPDATE upload_tasks
+                SET
+                    status = 'cancelling',
+                    cancel_requested_at = COALESCE(cancel_requested_at, CURRENT_TIMESTAMP),
+                    last_heartbeat_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE task_id = ?
+                """,
+                [task_id],
+            )
+        return self.get_upload_task(task_id)
 
     def _normalize_upload_task_row(self, result: dict[str, Any]) -> dict[str, Any]:
         raw = result.get("result_json")

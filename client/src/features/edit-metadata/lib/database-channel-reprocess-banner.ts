@@ -42,7 +42,11 @@ export function selectDatabaseChannelReprocessBanners(params: {
   metadataEditDialog: MetadataEditDialogVisibility;
 }): DatabaseChannelReprocessBannerEntry[] {
   return Object.entries(params.scopes)
-    .filter(([, scopeState]) => scopeState.status === 'running' && !scopeState.modalOpen)
+    .filter(
+      ([, scopeState]) =>
+        (scopeState.status === 'running' || scopeState.status === 'cancelling') &&
+        !scopeState.modalOpen,
+    )
     .map(([key, scopeState]) => ({
       scope: parseScopeKey(key),
       progressMessage: scopeState.progressMessage.trim() || RUNNING_LABEL,

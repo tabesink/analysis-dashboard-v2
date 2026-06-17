@@ -57,12 +57,12 @@ export function SelectDatasetSection({
             onValueChange={onProgramIdChange}
             disabled={isProgramIdsLoading || isPrefillLoading || isSaving}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="h-8 w-full text-xs">
               <SelectValue placeholder="Select program ID" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="text-xs">
               {programIds.map((programId) => (
-                <SelectItem key={programId} value={programId}>
+                <SelectItem key={programId} value={programId} className="text-xs">
                   {programId}
                 </SelectItem>
               ))}
@@ -79,12 +79,12 @@ export function SelectDatasetSection({
               !selectedProgramId || isVersionsLoading || isPrefillLoading || isSaving
             }
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="h-8 w-full text-xs">
               <SelectValue placeholder="Select version" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="text-xs">
               {versions.map((version) => (
-                <SelectItem key={version} value={version}>
+                <SelectItem key={version} value={version} className="text-xs">
                   {version}
                 </SelectItem>
               ))}

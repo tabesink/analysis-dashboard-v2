@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { exportApi } from './export';
-import { postFormDataWithProgress } from './client';
 
 vi.mock('./client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./client')>();
@@ -9,7 +8,6 @@ vi.mock('./client', async (importOriginal) => {
   return {
     ...actual,
     getApiBaseUrl: () => 'http://localhost:8000',
-    postFormDataWithProgress: vi.fn(),
   };
 });
 
@@ -46,7 +44,7 @@ describe('export api', () => {
     );
   });
 
-  it('uses current task route contracts for export and import actions', async () => {
+  it('uses current task route contracts for export actions', async () => {
     const fetchMock = vi.fn().mockImplementation(async () => (
       new Response(JSON.stringify({ task_id: 'task-1' }), {
         status: 200,
@@ -56,14 +54,10 @@ describe('export api', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await exportApi.startParquetExport();
-    await exportApi.startParquetImport('upload-1');
-    await exportApi.cancelParquetUpload('upload-1');
     await exportApi.cancelParquetTask('task-1');
 
     expect(fetchMock.mock.calls.map(([url, init]) => [url, (init as RequestInit).method])).toEqual([
       ['http://localhost:8000/api/v1/export/database/parquet/export/start', 'POST'],
-      ['http://localhost:8000/api/v1/export/database/parquet/import/upload-1', 'POST'],
-      ['http://localhost:8000/api/v1/export/database/parquet/upload/upload-1', 'DELETE'],
       ['http://localhost:8000/api/v1/export/database/parquet/task/task-1', 'DELETE'],
     ]);
   });
@@ -89,45 +83,6 @@ describe('export api', () => {
     ]);
   });
 
-  it('uploads parquet zip through the progress form helper', async () => {
-    vi.mocked(postFormDataWithProgress).mockResolvedValue({
-      upload_id: 'upload-1',
-      validation: {
-        valid: true,
-        event_count: 1,
-        size_mb: 0.1,
-        tables: ['dim_event'],
-        schema_compatibility: {
-          is_compatible: true,
-          is_legacy: false,
-          imported_schema_version: 1,
-          current_schema_version: 1,
-          schema_version_match: true,
-          missing_columns: [],
-          extra_columns: [],
-        },
-        warnings: [],
-      },
-    });
-    const onProgress = vi.fn();
-    const signal = new AbortController().signal;
-
-    await exportApi.uploadParquetZip(new File(['zip'], 'dashboard_export.zip'), {
-      onProgress,
-      signal,
-    });
-
-    expect(postFormDataWithProgress).toHaveBeenCalledTimes(1);
-    const [path, formData, progress, timeout, passedSignal] = vi.mocked(
-      postFormDataWithProgress,
-    ).mock.calls[0];
-    expect(path).toBe('/api/v1/export/database/parquet/upload');
-    expect(formData).toBeInstanceOf(FormData);
-    expect(progress).toBe(onProgress);
-    expect(timeout).toBe(30 * 60 * 1000);
-    expect(passedSignal).toBe(signal);
-  });
-
   it('retries transient task poll gateway failures', async () => {
     vi.useFakeTimers();
     const fetchMock = vi
@@ -138,9 +93,9 @@ describe('export api', () => {
         new Response(
           JSON.stringify({
             task_id: 'task-1',
-            kind: 'import',
+            kind: 'export',
             status: 'completed',
-            progress: 'Import complete',
+            progress: 'Ready to download',
             phase: 'completed',
             sub_phase: '',
             current: 16,
@@ -171,7 +126,7 @@ describe('export api', () => {
     await expect(task).resolves.toMatchObject({ status: 'completed' });
     expect(states).toContainEqual({
       connectionLost: true,
-      message: 'Waiting for server… import may still be running.',
+      message: 'Waiting for server… export may still be running.',
     });
     expect(states.at(-1)).toEqual({ connectionLost: false });
   });

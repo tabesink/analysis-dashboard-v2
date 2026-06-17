@@ -1,6 +1,7 @@
 """Data ingestion service with atomic transaction semantics."""
 
 import csv
+from datetime import UTC, datetime
 import hashlib
 import json
 import logging
@@ -46,6 +47,7 @@ from server.services.etl import (
     RSPConverter,
     ValidationSeverity,
 )
+from server.services.operation_admission import assert_can_start_derived_task
 from server.storage.database import UnifiedStore
 from server.upload.task_kinds import TASK_KIND_CHANNEL_REPROCESS
 from server.utils.cache import CacheKeys, SimpleCache
@@ -86,11 +88,13 @@ class IngestionResult:
     error: str | None = None
     total_rows: int = 0
     pending_channel_map: bool = False
+    cancelled: bool = False
 
 
 EventCommittedCallback = Callable[[str, int, int], None]
 UploadTaskUpdateCallback = Callable[..., None]
 ChannelReprocessProgressCallback = Callable[..., None]
+CancelRequestedCallback = Callable[[], bool]
 
 
 class IngestionService:
@@ -441,10 +445,52 @@ class IngestionService:
             created_by_user_id=uploaded_by_user_id,
             total_events=total_events,
             ttl_minutes=UPLOAD_TASK_TTL_MINUTES,
+            scope={"program_id": program_id, "version": version},
+        )
+        committed_event_ids: list[str] = []
+        cancellation_message = (
+            "Cancellation requested. Finishing the current database write before stopping safely..."
         )
 
+        def _record_committed_event(event_id: str, completed: int, total: int) -> None:
+            committed_event_ids.append(event_id)
+            self.db.update_upload_task(
+                task_id,
+                phase="writing",
+                completed_events=completed,
+                total_events=total,
+                current_event=event_id,
+                progress_message=f"Processed {completed}/{total}: {event_id}",
+                result={
+                    "success": False,
+                    "event_ids": [*committed_event_ids],
+                    "cleanup_required": True,
+                    "cleanup_candidate_event_count": len(committed_event_ids),
+                },
+                heartbeat_at=datetime.now(UTC),
+            )
+
+        def _is_cancel_requested() -> bool:
+            task = self.db.get_upload_task(task_id)
+            status = str(task.get("status") or "") if task else ""
+            if status != "cancelling":
+                return False
+            self.db.update_upload_task(
+                task_id,
+                phase="writing",
+                progress_message=cancellation_message,
+                heartbeat_at=datetime.now(UTC),
+            )
+            return True
+
         def _run() -> None:
-            self.db.update_upload_task(task_id, status="running", phase="upload_received")
+            self.db.update_upload_task(
+                task_id,
+                status="running",
+                phase="upload_received",
+                runner_id=threading.current_thread().name,
+                heartbeat_at=datetime.now(UTC),
+            )
             try:
                 result = self.ingest(
                     files=files,
@@ -459,16 +505,35 @@ class IngestionService:
                     on_task_update=lambda **fields: self.db.update_upload_task(
                         task_id,
                         **fields,
+                        heartbeat_at=datetime.now(UTC),
                     ),
-                    on_event_committed=lambda event_id, completed, total: self.db.update_upload_task(
-                        task_id,
-                        phase="writing",
-                        completed_events=completed,
-                        total_events=total,
-                        current_event=event_id,
-                        progress_message=f"Processed {completed}/{total}: {event_id}",
-                    ),
+                    on_event_committed=_record_committed_event,
+                    is_cancel_requested=_is_cancel_requested,
                 )
+                if result.cancelled:
+                    self.db.update_upload_task(
+                        task_id,
+                        status="cancelled",
+                        phase="cancelled",
+                        completed_events=len(result.event_ids),
+                        total_events=max(total_events, len(result.files)),
+                        current_event=None,
+                        error=None,
+                        progress_message="Upload cancelled safely.",
+                        result={
+                            "success": False,
+                            "files": [f.__dict__ for f in result.files],
+                            "event_ids": result.event_ids,
+                            "error": result.error,
+                            "total_rows": result.total_rows,
+                            "pending_channel_map": result.pending_channel_map,
+                            "cleanup_required": len(result.event_ids) > 0,
+                            "cleanup_candidate_event_count": len(result.event_ids),
+                            "summary": "Cancelled safely before completion",
+                        },
+                        heartbeat_at=datetime.now(UTC),
+                    )
+                    return
                 self.db.update_upload_task(
                     task_id,
                     status="completed" if result.success else "failed",
@@ -484,7 +549,10 @@ class IngestionService:
                         "error": result.error,
                         "total_rows": result.total_rows,
                         "pending_channel_map": result.pending_channel_map,
+                        "cleanup_required": not result.success and len(result.event_ids) > 0,
+                        "cleanup_candidate_event_count": len(result.event_ids),
                     },
+                    heartbeat_at=datetime.now(UTC),
                 )
             except Exception as exc:  # pragma: no cover
                 logger.exception("Upload task failed unexpectedly: %s", task_id)
@@ -494,6 +562,7 @@ class IngestionService:
                     phase="failed",
                     current_event=None,
                     error=str(exc),
+                    heartbeat_at=datetime.now(UTC),
                 )
 
         threading.Thread(target=_run, daemon=True).start()
@@ -512,6 +581,7 @@ class IngestionService:
         custom_field_values: dict[str, str] | None = None,
         on_task_update: UploadTaskUpdateCallback | None = None,
         on_event_committed: EventCommittedCallback | None = None,
+        is_cancel_requested: CancelRequestedCallback | None = None,
     ) -> IngestionResult:
         """
         Ingest files with per-event commit semantics.
@@ -535,9 +605,29 @@ class IngestionService:
         metadata = self._with_derived_weight_ranges(metadata or {})
         custom_field_values = custom_field_values or {}
 
+        file_results: list[FileResult] = []
+        created_events: list[str] = []
+        total_rows = 0
+
+        def cancel_result(*, error: str = "Upload cancelled safely by user request.") -> IngestionResult:
+            return IngestionResult(
+                success=False,
+                files=file_results,
+                event_ids=created_events,
+                error=error,
+                total_rows=total_rows,
+                pending_channel_map=not bool(channel_map_content),
+                cancelled=True,
+            )
+
+        def should_cancel() -> bool:
+            return bool(is_cancel_requested and is_cancel_requested())
+
         try:
-            normalized_files = self._normalize_files(files, on_task_update)
+            normalized_files = self._normalize_files(files, on_task_update, should_cancel)
             if not normalized_files:
+                if should_cancel():
+                    return cancel_result()
                 return IngestionResult(success=False, error="No valid CSV or RSP files found")
 
             stored_sources = self._store_source_artifacts_for_batch(
@@ -548,9 +638,6 @@ class IngestionService:
             )
 
             if not channel_map_content:
-                file_results: list[FileResult] = []
-                created_events: list[str] = []
-                total_rows = 0
                 existing_hashes = self.db.get_file_hashes(program_id, version)
                 existing_event_ids = self._get_existing_event_ids()
                 self.db.upsert_program(program_id, name=program_id)
@@ -560,6 +647,8 @@ class IngestionService:
                     normalized_files,
                     start=1,
                 ):
+                    if should_cancel():
+                        return cancel_result()
                     if on_task_update:
                         on_task_update(
                             phase="validating",
@@ -574,6 +663,8 @@ class IngestionService:
                             success=False,
                             error=f"Parse failed for {filename}: {parsed.error}",
                         )
+                    if should_cancel():
+                        return cancel_result()
 
                     validation = self.validator.validate(
                         df=parsed.dataframe,
@@ -591,6 +682,8 @@ class IngestionService:
                             success=False,
                             error=f"Validation failed for {filename}: {error_msg}",
                         )
+                    if should_cancel():
+                        return cancel_result()
 
                     warning_count = sum(
                         1
@@ -611,6 +704,8 @@ class IngestionService:
 
                     event_id = self._generate_event_id(parsed.filename, existing_event_ids)
                     try:
+                        if should_cancel():
+                            return cancel_result()
                         with self.db.write_connection() as conn:
                             existing_event_ids.add(event_id)
                             existing_hashes.add(validation.file_hash)
@@ -679,6 +774,8 @@ class IngestionService:
                             total_rows=total_rows,
                             error=f"Ingestion failed for {filename}: {exc}",
                         )
+                    if should_cancel():
+                        return cancel_result()
 
                     artifact_id = self._store_artifact(
                         program_id=program_id,
@@ -739,6 +836,8 @@ class IngestionService:
                 normalized_files,
                 start=1,
             ):
+                if should_cancel():
+                    return cancel_result()
                 if on_task_update:
                     on_task_update(
                         phase="validating",
@@ -754,6 +853,8 @@ class IngestionService:
                         success=False,
                         error=f"Parse failed for {filename}: {parsed.error}",
                     )
+                if should_cancel():
+                    return cancel_result()
 
                 # Validate data
                 validation = self.validator.validate(
@@ -769,6 +870,8 @@ class IngestionService:
                         success=False,
                         error=f"Validation failed for {filename}: {error_msg}",
                     )
+                if should_cancel():
+                    return cancel_result()
 
                 warning_count = sum(
                     1
@@ -818,8 +921,8 @@ class IngestionService:
         )
 
         # Phase 2: Write data with per-event commits
-        created_events: list[str] = []
-        file_results: list[FileResult] = []
+        created_events = []
+        file_results = []
         total_rows = 0
 
         # Get existing event IDs to ensure uniqueness
@@ -866,8 +969,12 @@ class IngestionService:
                     )
 
             for parsed, validation, parse_content, validation_content, original_filename, ingestion_run_id in parsed_files:
+                if should_cancel():
+                    return cancel_result()
                 event_id = self._generate_event_id(parsed.filename, existing_event_ids)
                 try:
+                    if should_cancel():
+                        return cancel_result()
                     with self.db.write_connection() as conn:
                         existing_event_ids.add(event_id)
 
@@ -964,6 +1071,8 @@ class IngestionService:
                         total_rows=total_rows,
                         error=f"Ingestion failed for {parsed.filename}: {exc}",
                     )
+                if should_cancel():
+                    return cancel_result()
 
                 created_events.append(event_id)
                 total_rows += parsed.row_count
@@ -1254,6 +1363,7 @@ class IngestionService:
     ) -> dict[str, Any]:
         """Create or reuse a channel reprocess task and run processing in the background."""
         self.db.delete_expired_upload_tasks()
+        assert_can_start_derived_task(self.db, task_kind=TASK_KIND_CHANNEL_REPROCESS)
         existing = self.db.find_active_derived_data_task(program_id, version)
         if existing is not None:
             from server.services.derived_data_task import build_reuse_active_derived_data_task_response
@@ -1287,7 +1397,13 @@ class IngestionService:
         )
 
         def _run() -> None:
-            self.db.update_upload_task(task_id, status="running", phase="validating")
+            self.db.update_upload_task(
+                task_id,
+                status="running",
+                phase="validating",
+                runner_id=threading.current_thread().name,
+                heartbeat_at=datetime.now(UTC),
+            )
             try:
                 result = self._process_retained_artifacts(
                     program_id=program_id,
@@ -1296,7 +1412,11 @@ class IngestionService:
                     channel_map_snapshot=channel_map_snapshot,
                     user_id=user_id,
                     artifacts=artifacts,
-                    on_progress=lambda **fields: self.db.update_upload_task(task_id, **fields),
+                    on_progress=lambda **fields: self.db.update_upload_task(
+                        task_id,
+                        **fields,
+                        heartbeat_at=datetime.now(UTC),
+                    ),
                 )
                 failed_count = int(result["failed_count"])
                 from server.services.post_upload_precompute import (
@@ -1331,6 +1451,7 @@ class IngestionService:
                         else None
                     ),
                     result=result,
+                    heartbeat_at=datetime.now(UTC),
                 )
             except Exception as exc:  # pragma: no cover
                 logger.exception("Channel reprocess task failed unexpectedly: %s", task_id)
@@ -1342,6 +1463,7 @@ class IngestionService:
                     progress_message=None,
                     current_event=None,
                     error=str(exc),
+                    heartbeat_at=datetime.now(UTC),
                 )
 
         threading.Thread(target=_run, daemon=True).start()
@@ -1717,6 +1839,7 @@ class IngestionService:
         self,
         files: list[tuple[str, bytes]],
         on_task_update: UploadTaskUpdateCallback | None = None,
+        is_cancel_requested: CancelRequestedCallback | None = None,
     ) -> list[tuple[str, bytes, bytes]]:
         """Return files as CSV parse bytes while preserving original hash bytes."""
         data_files = [
@@ -1737,6 +1860,8 @@ class IngestionService:
         total_files = len(data_files)
         normalized = []
         for index, (filename, content) in enumerate(data_files, start=1):
+            if is_cancel_requested and is_cancel_requested():
+                return normalized
             if on_task_update:
                 on_task_update(
                     phase="converting",

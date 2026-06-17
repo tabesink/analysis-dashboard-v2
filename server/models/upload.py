@@ -59,10 +59,46 @@ class UploadTaskEvent(BaseModel):
     total_events: int = 0
     current_event: str | None = None
     progress_message: str | None = None
+    started_at: str | None = None
+    cancel_requested_at: str | None = None
+    finished_at: str | None = None
+    last_heartbeat_at: str | None = None
+    runner_id: str | None = None
     error: str | None = None
     error_details: dict[str, object] | None = None
     result_summary: str | None = None
     result: UploadResponse | None = None
+
+
+class UploadTaskCancelResponse(BaseModel):
+    """Acknowledgement payload for upload-task cancellation requests."""
+
+    task_id: str
+    status: str = Field(description="queued, running, cancelling, completed, failed, or cancelled")
+    terminal_state: str | None = Field(
+        default=None,
+        description="completed, failed, or cancelled when task reached a terminal state",
+    )
+    task_kind: str = Field(description="folder_upload, channel_reprocess, or damage_calculation")
+    cancel_requested_at: str | None = None
+
+
+class UploadTaskDiscoveryResponse(BaseModel):
+    """Recovery payload for reconnecting upload/derived task operations."""
+
+    active_tasks: list[UploadTaskEvent] = Field(default_factory=list)
+    recent_terminal_tasks: list[UploadTaskEvent] = Field(default_factory=list)
+
+
+class FailedUploadCleanupResponse(BaseModel):
+    """Result of cleaning up partial data from a failed folder upload."""
+
+    deleted: bool
+    task_id: str
+    deleted_event_ids: list[str] = Field(default_factory=list)
+    deleted_event_count: int = 0
+    deleted_artifact_count: int = 0
+    skipped_artifact_paths: list[str] = Field(default_factory=list)
 
 
 class DatasetInfo(BaseModel):

@@ -13,6 +13,7 @@ from server.services.post_upload_precompute import (
 from server.upload.policies import (
     EDIT_UPLOADED_DATA_FORBIDDEN_DETAIL,
     has_contributor_edit_uploaded_data_policy,
+    has_uploaded_data_admin_policy,
 )
 from server.utils.channel_map_file import is_valid_channel_map_filename
 
@@ -35,6 +36,32 @@ def require_uploaded_data_edit_permission(
     )
     if not can_edit:
         raise PermissionError(EDIT_UPLOADED_DATA_FORBIDDEN_DETAIL)
+
+
+def can_access_derived_task_scope(
+    *,
+    store: Any,
+    task_row: dict[str, Any],
+    user_id: str,
+    role: str,
+) -> bool:
+    """Return True when user can access a derived task by its scope ownership."""
+    if has_uploaded_data_admin_policy(role=role):
+        return True
+    raw_scope = task_row.get("scope_json")
+    if not isinstance(raw_scope, dict):
+        return False
+    program_id = str(raw_scope.get("program_id") or "").strip()
+    version = str(raw_scope.get("version") or "").strip()
+    if not program_id or not version:
+        return False
+    return has_contributor_edit_uploaded_data_policy(
+        store=store,
+        program_id=program_id,
+        version=version,
+        user_id=user_id,
+        role=role,
+    )
 
 
 def start_channel_reprocess_from_entries(

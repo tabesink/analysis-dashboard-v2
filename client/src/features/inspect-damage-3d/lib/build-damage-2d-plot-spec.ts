@@ -66,14 +66,16 @@ type BuildDamage2DPlotSpecInput = {
   referenceScopeLabel?: string | null;
   targetScopeLabel?: string | null;
   eventNameByEventId?: ReadonlyMap<string, string>;
-  /** When set, cumulative and absolute-by-event plots use this domain instead of per-plot maxima. */
-  sharedYDomain?: [number, number];
+  /** When set, absolute-by-event plots share this y-domain (reference + target). */
+  sharedEventYDomain?: [number, number];
+  /** When set, cumulative-by-channel uses this y-domain (independent from event plots). */
+  cumulativeYDomain?: [number, number];
   eventThreshold?: number;
 };
 
-type SharedAbsoluteDamageDomainInput = Omit<
+type SharedDamageDomainInput = Omit<
   BuildDamage2DPlotSpecInput,
-  'plotType' | 'sharedYDomain'
+  'plotType' | 'sharedEventYDomain' | 'cumulativeYDomain'
 >;
 
 const REFERENCE_COLOR = '#2563eb';
@@ -152,13 +154,16 @@ function toScaledDomain(maxValue: number): [number, number] {
 
 function resolveAbsoluteYDomain(
   computedMax: number,
-  sharedYDomain?: [number, number],
+  overrideDomain?: [number, number],
 ): [number, number] {
-  if (sharedYDomain) return sharedYDomain;
+  if (overrideDomain) return overrideDomain;
   return toScaledDomain(computedMax);
 }
 
-function computeCumulativeScaledMax(input: SharedAbsoluteDamageDomainInput): number | null {
+function collectCumulativeAbsoluteByDatasetAndChannel(input: SharedDamageDomainInput): {
+  labelByKey: Map<string, string>;
+  valuesByDatasetAndChannel: Map<string, number>;
+} | null {
   if (!input.aggregates || input.selectedChannelKeys.length === 0) return null;
 
   const selectedSet = new Set(input.selectedChannelKeys);
@@ -174,27 +179,59 @@ function computeCumulativeScaledMax(input: SharedAbsoluteDamageDomainInput): num
       const key = `${row.dataset}::${row.channel_key}`;
       valuesByDatasetAndChannel.set(
         key,
-        (valuesByDatasetAndChannel.get(key) ?? 0) + toSelectedEventValue(row, input.valueMode),
+        (valuesByDatasetAndChannel.get(key) ?? 0) + row.absolute_damage,
       );
     }
   } else {
     for (const row of input.aggregates.channel) {
       if (!selectedSet.has(row.channel_key)) continue;
       labelByKey.set(row.channel_key, row.channel_label || row.channel_key);
-      valuesByDatasetAndChannel.set(
-        `${row.dataset}::${row.channel_key}`,
-        toSelectedValue(row, input.valueMode),
-      );
+      valuesByDatasetAndChannel.set(`${row.dataset}::${row.channel_key}`, row.absolute_damage);
     }
   }
 
   if (labelByKey.size === 0) return null;
+  return { labelByKey, valuesByDatasetAndChannel };
+}
 
-  const channelKeys = input.selectedChannelKeys.filter((channelKey) => labelByKey.has(channelKey));
-  const scaledValues = channelKeys.flatMap((channelKey) => [
-    applyDamageScale(valuesByDatasetAndChannel.get(`reference::${channelKey}`) ?? 0, input.scaleMode),
-    applyDamageScale(valuesByDatasetAndChannel.get(`target::${channelKey}`) ?? 0, input.scaleMode),
-  ]);
+function toCumulativeDisplayPair(
+  referenceAbsolute: number,
+  targetAbsolute: number,
+  valueMode: DamageComparisonValueMode,
+  scaleMode: DamagePlotScaleMode,
+): { reference: number; target: number } {
+  if (valueMode === 'normalized') {
+    const channelMax = Math.max(referenceAbsolute, targetAbsolute);
+    const referenceNormalized = channelMax > 0 ? referenceAbsolute / channelMax : 0;
+    const targetNormalized = channelMax > 0 ? targetAbsolute / channelMax : 0;
+    return {
+      reference: applyDamageScale(referenceNormalized, scaleMode),
+      target: applyDamageScale(targetNormalized, scaleMode),
+    };
+  }
+
+  return {
+    reference: applyDamageScale(referenceAbsolute, scaleMode),
+    target: applyDamageScale(targetAbsolute, scaleMode),
+  };
+}
+
+function computeCumulativeScaledMax(input: SharedDamageDomainInput): number | null {
+  const collected = collectCumulativeAbsoluteByDatasetAndChannel(input);
+  if (!collected) return null;
+
+  const channelKeys = input.selectedChannelKeys.filter((channelKey) =>
+    collected.labelByKey.has(channelKey),
+  );
+  const scaledValues = channelKeys.flatMap((channelKey) => {
+    const pair = toCumulativeDisplayPair(
+      collected.valuesByDatasetAndChannel.get(`reference::${channelKey}`) ?? 0,
+      collected.valuesByDatasetAndChannel.get(`target::${channelKey}`) ?? 0,
+      input.valueMode,
+      input.scaleMode,
+    );
+    return [pair.reference, pair.target];
+  });
 
   return Math.max(0, ...scaledValues);
 }
@@ -291,7 +328,7 @@ function buildThresholdedEventSeries(params: {
 }
 
 function computeEventStackedScaledMax(
-  input: SharedAbsoluteDamageDomainInput,
+  input: SharedDamageDomainInput,
   dataset: 'reference' | 'target',
 ): number | null {
   if (!input.aggregates || input.selectedChannelKeys.length === 0) return null;
@@ -341,12 +378,15 @@ function computeEventStackedScaledMax(
   return Math.max(0, ...stackedTotals);
 }
 
-/** Unified [0, max] y-domain for cumulative and both absolute-by-event plots. */
-export function computeSharedAbsoluteDamageYDomain(
-  input: SharedAbsoluteDamageDomainInput,
-): [number, number] {
+/** [0, max] y-domain for cumulative-by-channel (independent from event plots). */
+export function computeCumulativeDamageYDomain(input: SharedDamageDomainInput): [number, number] {
+  const cumulativeMax = computeCumulativeScaledMax(input);
+  return toScaledDomain(cumulativeMax ?? 0);
+}
+
+/** Shared [0, max] y-domain for reference and target absolute-by-event plots. */
+export function computeSharedEventDamageYDomain(input: SharedDamageDomainInput): [number, number] {
   const maxima = [
-    computeCumulativeScaledMax(input),
     computeEventStackedScaledMax(input, 'reference'),
     computeEventStackedScaledMax(input, 'target'),
   ].filter((value): value is number => value !== null);
@@ -369,7 +409,7 @@ function buildAbsoluteByEventSpec(params: {
       ...baseSpec,
       title: params.title,
       legend: [{ label: params.seriesLabel, color: params.seriesColor, role: params.dataset }],
-      warnings: ['Comparison aggregates are unavailable.'],
+      warnings: [],
       emptyState: {
         title: 'No comparison data available',
         description: `${params.seriesLabel} event totals appear once comparison aggregates are available.`,
@@ -382,7 +422,7 @@ function buildAbsoluteByEventSpec(params: {
       ...baseSpec,
       title: params.title,
       legend: [{ label: params.seriesLabel, color: params.seriesColor, role: params.dataset }],
-      warnings: ['No selected channels were provided.'],
+      warnings: [],
       emptyState: {
         title: 'Select plotted channels',
         description: `Choose one or more channels to render ${params.seriesLabel.toLowerCase()} event totals.`,
@@ -423,7 +463,7 @@ function buildAbsoluteByEventSpec(params: {
       ...baseSpec,
       title: params.title,
       legend: [{ label: params.seriesLabel, color: params.seriesColor, role: params.dataset }],
-      warnings: [`No ${params.dataset} event aggregate rows were found for the current filters.`],
+      warnings: [],
       emptyState: {
         title: `No ${params.seriesLabel.toLowerCase()} event totals`,
         description: `The current selection does not have renderable ${params.seriesLabel.toLowerCase()} event totals.`,
@@ -453,7 +493,7 @@ function buildAbsoluteByEventSpec(params: {
     xCategories: channelKeys.map((channelKey) => labelByChannelKey.get(channelKey) ?? channelKey),
     yScale: {
       mode: input.scaleMode,
-      domain: resolveAbsoluteYDomain(maxValue, input.sharedYDomain),
+      domain: resolveAbsoluteYDomain(maxValue, input.sharedEventYDomain),
       tickFormat: input.scaleMode === 'log' ? 'log' : input.valueMode === 'normalized' ? 'percent' : 'linear',
     },
     series,
@@ -513,7 +553,7 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
         ...baseSpec,
         chartKind: 'diverging-bar',
         title: 'Target Δ vs Reference Damage by Channel',
-        warnings: ['Comparison aggregates are unavailable.'],
+        warnings: [],
         emptyState: {
           title: 'No comparison data available',
           description: 'Target delta values appear once comparison aggregates are available.',
@@ -526,7 +566,7 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
         ...baseSpec,
         chartKind: 'diverging-bar',
         title: 'Target Δ vs Reference Damage by Channel',
-        warnings: ['No selected channels were provided.'],
+        warnings: [],
         emptyState: {
           title: 'Select plotted channels',
           description: 'Choose one or more channels to render target delta values.',
@@ -557,7 +597,7 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
           ...baseSpec,
           chartKind: 'diverging-bar',
           title: 'Target Δ vs Reference Damage by Channel',
-          warnings: ['Selected events have no delta aggregate rows.'],
+          warnings: [],
           emptyState: {
             title: 'No selected event deltas',
             description: 'The selected events do not have renderable target-vs-reference deltas.',
@@ -627,7 +667,7 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
         ...baseSpec,
         chartKind: 'diverging-bar',
         title: 'Target Δ vs Reference Damage by Channel',
-        warnings: ['Selected channels have no delta aggregate rows.'],
+        warnings: [],
         emptyState: {
           title: 'No channel delta totals',
           description: 'The selected channels do not have renderable target-vs-reference deltas.',
@@ -694,7 +734,7 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
   if (!input.aggregates) {
     return {
       ...baseSpec,
-      warnings: ['Comparison aggregates are unavailable.'],
+      warnings: [],
       emptyState: {
         title: 'No comparison data available',
         description: 'Cumulative comparison values appear once comparison aggregates are available.',
@@ -705,7 +745,7 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
   if (input.selectedChannelKeys.length === 0) {
     return {
       ...baseSpec,
-      warnings: ['No selected channels were provided.'],
+      warnings: [],
       emptyState: {
         title: 'Select plotted channels',
         description: 'Choose one or more channels to render cumulative comparison damage.',
@@ -713,41 +753,12 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
     };
   }
 
-  const selectedSet = new Set(input.selectedChannelKeys);
   const hasEventSelection = (input.selectedEventIds?.length ?? 0) > 0;
-  const selectedEventSet = new Set(input.selectedEventIds ?? []);
-  const labelByKey = new Map<string, string>();
-  const valuesByDatasetAndChannel = new Map<string, number>();
-
-  if (hasEventSelection) {
-    for (const row of input.aggregates.event_channel) {
-      if (!selectedSet.has(row.channel_key) || !selectedEventSet.has(row.event_id)) continue;
-      labelByKey.set(row.channel_key, row.channel_label || row.channel_key);
-      const key = `${row.dataset}::${row.channel_key}`;
-      valuesByDatasetAndChannel.set(
-        key,
-        (valuesByDatasetAndChannel.get(key) ?? 0) + toSelectedEventValue(row, input.valueMode),
-      );
-    }
-  } else {
-    const rows = input.aggregates.channel.filter((row) => selectedSet.has(row.channel_key));
-    for (const row of rows) {
-      labelByKey.set(row.channel_key, row.channel_label || row.channel_key);
-      valuesByDatasetAndChannel.set(
-        `${row.dataset}::${row.channel_key}`,
-        toSelectedValue(row, input.valueMode),
-      );
-    }
-  }
-
-  if (labelByKey.size === 0) {
+  const collected = collectCumulativeAbsoluteByDatasetAndChannel(input);
+  if (!collected) {
     return {
       ...baseSpec,
-      warnings: [
-        hasEventSelection
-          ? 'Selected events have no aggregate rows.'
-          : 'Selected channels have no aggregate rows.',
-      ],
+      warnings: [],
       emptyState: {
         title: hasEventSelection ? 'No selected event totals' : 'No cumulative channel totals',
         description: hasEventSelection
@@ -757,14 +768,26 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
     };
   }
 
-  const channelKeys = input.selectedChannelKeys.filter((channelKey) => labelByKey.has(channelKey));
-  const xCategories = channelKeys.map((channelKey) => labelByKey.get(channelKey) ?? channelKey);
-
-  const referenceValues = channelKeys.map(
-    (channelKey) => applyDamageScale(valuesByDatasetAndChannel.get(`reference::${channelKey}`) ?? 0, input.scaleMode),
+  const channelKeys = input.selectedChannelKeys.filter((channelKey) =>
+    collected.labelByKey.has(channelKey),
   );
-  const targetValues = channelKeys.map(
-    (channelKey) => applyDamageScale(valuesByDatasetAndChannel.get(`target::${channelKey}`) ?? 0, input.scaleMode),
+  const xCategories = channelKeys.map((channelKey) => collected.labelByKey.get(channelKey) ?? channelKey);
+
+  const referenceValues = channelKeys.map((channelKey) =>
+    toCumulativeDisplayPair(
+      collected.valuesByDatasetAndChannel.get(`reference::${channelKey}`) ?? 0,
+      collected.valuesByDatasetAndChannel.get(`target::${channelKey}`) ?? 0,
+      input.valueMode,
+      input.scaleMode,
+    ).reference,
+  );
+  const targetValues = channelKeys.map((channelKey) =>
+    toCumulativeDisplayPair(
+      collected.valuesByDatasetAndChannel.get(`reference::${channelKey}`) ?? 0,
+      collected.valuesByDatasetAndChannel.get(`target::${channelKey}`) ?? 0,
+      input.valueMode,
+      input.scaleMode,
+    ).target,
   );
 
   const maxValue = Math.max(0, ...referenceValues, ...targetValues);
@@ -774,7 +797,7 @@ export function buildDamage2DPlotSpec(input: BuildDamage2DPlotSpecInput): Damage
     xCategories,
     yScale: {
       mode: input.scaleMode,
-      domain: resolveAbsoluteYDomain(maxValue, input.sharedYDomain),
+      domain: resolveAbsoluteYDomain(maxValue, input.cumulativeYDomain),
       tickFormat: input.scaleMode === 'log' ? 'log' : input.valueMode === 'normalized' ? 'percent' : 'linear',
     },
     series: [

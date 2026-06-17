@@ -94,4 +94,19 @@ describe('selectDatabaseChannelReprocessBanners', () => {
 
     expect(entries[0]?.progressMessage).toBe('Channel reprocess running…');
   });
+
+  it('shows a banner while cancellation is in progress and modal is dismissed', () => {
+    const entries = selectDatabaseChannelReprocessBanners({
+      scopes: {
+        'P1::V1': runningScopeState({
+          status: 'cancelling',
+          progressMessage: 'Cancelling safely...',
+        }),
+      },
+      metadataEditDialog: { isOpen: false, programId: '', version: '' },
+    });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.progressMessage).toBe('Cancelling safely...');
+  });
 });

@@ -65,4 +65,18 @@ describe('applyUploadTaskProgress', () => {
     expect(next.progressPhase).toBe('converting');
     expect(next.progress).toBeGreaterThan(5);
   });
+
+  it('shows cancelling-safe copy while server status is cancelling', () => {
+    const cancellingEvent: UploadTaskEvent = {
+      ...baseEvent,
+      status: 'cancelling',
+      progress_message: 'Cancelling safely...',
+    };
+
+    const next = applyUploadTaskProgress(cancellingEvent, baseState);
+
+    expect(next.progress).toBe(baseState.progress);
+    expect(next.progressPhase).toBe(baseState.progressPhase);
+    expect(next.message).toBe('Cancelling safely...');
+  });
 });

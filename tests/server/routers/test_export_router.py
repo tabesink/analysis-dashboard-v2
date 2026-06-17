@@ -10,6 +10,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from server.dependencies import get_export_service
+import server.services.active_presence as active_presence_service
+from server.services.operation_admission import exclusive_database_operation
 from server.services.export import TaskStatus, _put_task, get_task
 
 from .conftest import login
@@ -35,34 +37,8 @@ class StubExportService:
     def mark_export_downloading(self, _task_id: str) -> bool:
         return True
 
-    def validate_import_zip(self, _tmp_path: Any) -> dict[str, Any]:
-        return {
-            "valid": True,
-            "event_count": 0,
-            "size_mb": 0.01,
-            "tables": [],
-            "schema_compatibility": {
-                "is_compatible": True,
-                "is_legacy": False,
-                "imported_schema_version": 1,
-                "current_schema_version": 1,
-                "schema_version_match": True,
-                "missing_columns": [],
-                "extra_columns": [],
-            },
-        }
-
-    def register_upload(self, _tmp_path: Any) -> str:
-        return "staged-upload"
-
     def cancel_task(self, task_id: str) -> bool:
         return task_id == "running-task"
-
-    def cancel_pending_upload(self, upload_id: str) -> None:
-        return None
-
-    def start_import_task(self, upload_id: str) -> str:
-        return f"import-{upload_id}"
 
     def cleanup_export_zip(self, _task_id: str) -> None:
         return None
@@ -98,8 +74,73 @@ def _create_writer(client: TestClient) -> None:
     _logout(client)
 
 
+def _create_writer_with_username(client: TestClient, username: str) -> dict[str, Any]:
+    _login_admin(client)
+    response = client.post(
+        "/api/v1/admin/users",
+        json={
+            "username": username,
+            "password": "password1234",
+            "role": "user",
+            "can_write": True,
+        },
+    )
+    assert response.status_code == 201, response.text
+    _logout(client)
+    return response.json()
+
+
 def _zip_file() -> dict[str, tuple[str, bytes, str]]:
     return {"file": ("portable.zip", b"stub archive", "application/zip")}
+
+
+def _seed_active_upload_task(
+    auth_client: TestClient,
+    *,
+    task_id: str,
+    task_kind: str,
+    owner_user_id: str = "admin-1",
+    program_id: str = "P-ADMISSION",
+    version: str = "V1",
+) -> None:
+    auth_client.app.state.db.create_upload_task(
+        task_id=task_id,
+        created_by_user_id=owner_user_id,
+        total_events=1,
+        task_kind=task_kind,
+        phase="running",
+        scope={"program_id": program_id, "version": version},
+    )
+    auth_client.app.state.db.update_upload_task(
+        task_id,
+        status="running",
+        phase="running",
+    )
+
+
+def _seed_stale_active_upload_task(
+    auth_client: TestClient,
+    *,
+    task_id: str,
+    task_kind: str,
+    owner_user_id: str = "admin-1",
+) -> None:
+    _seed_active_upload_task(
+        auth_client,
+        task_id=task_id,
+        task_kind=task_kind,
+        owner_user_id=owner_user_id,
+    )
+    auth_client.app.state.db.read_connection.execute(
+        """
+        UPDATE upload_tasks
+        SET
+            started_at = CURRENT_TIMESTAMP - INTERVAL '10 minutes',
+            last_heartbeat_at = CURRENT_TIMESTAMP - INTERVAL '10 minutes'
+        WHERE task_id = ?
+        """,
+        [task_id],
+    ).fetchall()
 
 
 def test_admin_can_download_completed_export_without_logging_reserved_field_error(
@@ -320,6 +361,309 @@ def test_connect_database_clears_runtime_query_cache(auth_client: TestClient) ->
     assert cache.get("program_ids:False:False:none") is None
 
 
+def test_connect_database_is_blocked_by_active_folder_upload(auth_client: TestClient) -> None:
+    _login_admin(auth_client)
+    created = auth_client.post(
+        "/api/v1/export/database/create-new",
+        json={"name": "switch-block-upload"},
+    )
+    assert created.status_code == 200, created.text
+    new_db = created.json()["created_database"]
+    _seed_active_upload_task(
+        auth_client,
+        task_id="active-folder-upload-for-switch",
+        task_kind="folder_upload",
+    )
+
+    response = auth_client.post(
+        "/api/v1/export/database/connect",
+        json={"database_name": new_db},
+    )
+
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "operation_blocked"
+    assert detail["operation"] == "database_switch"
+    blocker = next(item for item in detail["blocked_by"] if item["reason"] == "active_folder_upload")
+    assert blocker["last_heartbeat_at"] is not None
+    assert blocker.get("cancel_requested_at") is None
+
+
+def test_connect_database_is_blocked_by_cancelling_folder_upload(auth_client: TestClient) -> None:
+    _login_admin(auth_client)
+    created = auth_client.post(
+        "/api/v1/export/database/create-new",
+        json={"name": "switch-block-cancelling-upload"},
+    )
+    assert created.status_code == 200, created.text
+    new_db = created.json()["created_database"]
+    _seed_active_upload_task(
+        auth_client,
+        task_id="active-cancelling-upload-for-switch",
+        task_kind="folder_upload",
+    )
+    auth_client.app.state.db.update_upload_task(
+        "active-cancelling-upload-for-switch",
+        status="cancelling",
+        phase="cancelling",
+        cancel_requested_at="2026-01-01T00:00:00",
+    )
+
+    response = auth_client.post(
+        "/api/v1/export/database/connect",
+        json={"database_name": new_db},
+    )
+
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "operation_blocked"
+    assert detail["operation"] == "database_switch"
+    blocker = next(item for item in detail["blocked_by"] if item["reason"] == "active_folder_upload")
+    assert blocker["status"] == "cancelling"
+    assert blocker["cancel_requested_at"] == "2026-01-01T00:00:00"
+
+
+def test_connect_database_is_blocked_by_active_derived_task(auth_client: TestClient) -> None:
+    _login_admin(auth_client)
+    created = auth_client.post(
+        "/api/v1/export/database/create-new",
+        json={"name": "switch-block-derived"},
+    )
+    assert created.status_code == 200, created.text
+    new_db = created.json()["created_database"]
+    _seed_active_upload_task(
+        auth_client,
+        task_id="active-derived-task-for-switch",
+        task_kind="damage_calculation",
+    )
+
+    response = auth_client.post(
+        "/api/v1/export/database/connect",
+        json={"database_name": new_db},
+    )
+
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "operation_blocked"
+    assert detail["operation"] == "database_switch"
+    assert any(item["reason"] == "active_derived_task" for item in detail["blocked_by"])
+
+
+def test_delete_database_reconciles_stale_active_upload_before_blocking(
+    auth_client: TestClient,
+) -> None:
+    _login_admin(auth_client)
+    created = auth_client.post(
+        "/api/v1/export/database/create-new",
+        json={"name": "delete-reconcile-stale-upload"},
+    )
+    assert created.status_code == 200, created.text
+    target_db = created.json()["created_database"]
+    _seed_stale_active_upload_task(
+        auth_client,
+        task_id="stale-upload-for-delete",
+        task_kind="folder_upload",
+    )
+
+    response = auth_client.post(
+        "/api/v1/export/database/delete",
+        json={
+            "database_name": target_db,
+            "confirmation": f"DELETE {target_db}",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    stale = auth_client.app.state.db.get_upload_task("stale-upload-for-delete")
+    assert stale is not None
+    assert stale["status"] == "failed"
+    assert stale["phase"] == "failed"
+    assert "heartbeat expired" in str(stale["error"]).lower()
+    assert stale["finished_at"] is not None
+
+
+def test_delete_database_reconciles_stale_cancelling_upload_before_blocking(
+    auth_client: TestClient,
+) -> None:
+    _login_admin(auth_client)
+    created = auth_client.post(
+        "/api/v1/export/database/create-new",
+        json={"name": "delete-reconcile-stale-cancelling-upload"},
+    )
+    assert created.status_code == 200, created.text
+    target_db = created.json()["created_database"]
+    _seed_stale_active_upload_task(
+        auth_client,
+        task_id="stale-cancelling-upload-for-delete",
+        task_kind="folder_upload",
+    )
+    auth_client.app.state.db.update_upload_task(
+        "stale-cancelling-upload-for-delete",
+        status="cancelling",
+        phase="cancelling",
+        cancel_requested_at="2026-01-01T00:00:00",
+    )
+    auth_client.app.state.db.read_connection.execute(
+        """
+        UPDATE upload_tasks
+        SET last_heartbeat_at = CURRENT_TIMESTAMP - INTERVAL '10 minutes'
+        WHERE task_id = ?
+        """,
+        ["stale-cancelling-upload-for-delete"],
+    ).fetchall()
+
+    response = auth_client.post(
+        "/api/v1/export/database/delete",
+        json={
+            "database_name": target_db,
+            "confirmation": f"DELETE {target_db}",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    stale = auth_client.app.state.db.get_upload_task("stale-cancelling-upload-for-delete")
+    assert stale is not None
+    assert stale["status"] == "failed"
+    assert stale["phase"] == "failed"
+    assert "heartbeat expired" in str(stale["error"]).lower()
+    assert stale["finished_at"] is not None
+
+
+def test_connect_database_is_blocked_by_active_other_user_presence(
+    auth_client: TestClient,
+) -> None:
+    _login_admin(auth_client)
+    created = auth_client.post(
+        "/api/v1/export/database/create-new",
+        json={"name": "switch-block-active-user"},
+    )
+    assert created.status_code == 200, created.text
+    new_db = created.json()["created_database"]
+    _create_writer_with_username(auth_client, "switch_presence_other")
+    login_response = auth_client.post(
+        "/api/v1/auth/login",
+        json={"username": "switch_presence_other", "password": "password1234"},
+    )
+    assert login_response.status_code == 200, login_response.text
+    heartbeat = auth_client.post(
+        "/api/v1/auth/presence/heartbeat",
+        json={"active_area": "/dashboard"},
+    )
+    assert heartbeat.status_code == 200, heartbeat.text
+    _login_admin(auth_client)
+
+    response = auth_client.post(
+        "/api/v1/export/database/connect",
+        json={"database_name": new_db},
+    )
+
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "operation_blocked"
+    assert detail["operation"] == "database_switch"
+    blocker = next(
+        item
+        for item in detail["blocked_by"]
+        if item["reason"] == "active_database_users"
+    )
+    assert blocker["usernames"] == ["switch_presence_other"]
+
+
+def test_connect_database_ignores_expired_user_presence(
+    auth_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _login_admin(auth_client)
+    created = auth_client.post(
+        "/api/v1/export/database/create-new",
+        json={"name": "switch-expired-active-user"},
+    )
+    assert created.status_code == 200, created.text
+    new_db = created.json()["created_database"]
+    _create_writer_with_username(auth_client, "switch_presence_expired")
+    login_response = auth_client.post(
+        "/api/v1/auth/login",
+        json={"username": "switch_presence_expired", "password": "password1234"},
+    )
+    assert login_response.status_code == 200, login_response.text
+    heartbeat = auth_client.post(
+        "/api/v1/auth/presence/heartbeat",
+        json={"active_area": "/database"},
+    )
+    assert heartbeat.status_code == 200, heartbeat.text
+    _logout(auth_client)
+    _login_admin(auth_client)
+
+    monkeypatch.setattr(active_presence_service, "ACTIVE_PRESENCE_TTL_SECONDS", 0)
+
+    response = auth_client.post(
+        "/api/v1/export/database/connect",
+        json={"database_name": new_db},
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_delete_database_is_blocked_by_active_export(auth_client: TestClient) -> None:
+    _login_admin(auth_client)
+    created = auth_client.post(
+        "/api/v1/export/database/create-new",
+        json={"name": "delete-block-export"},
+    )
+    assert created.status_code == 200, created.text
+    target_db = created.json()["created_database"]
+    blocker_task_id = "running-export-blocker"
+    _put_task(
+        TaskStatus(
+            task_id=blocker_task_id,
+            kind="export",
+            status="running",
+            progress="Exporting",
+            phase="exporting",
+        )
+    )
+    try:
+        response = auth_client.post(
+            "/api/v1/export/database/delete",
+            json={
+                "database_name": target_db,
+                "confirmation": f"DELETE {target_db}",
+            },
+        )
+
+        assert response.status_code == 409, response.text
+        detail = response.json()["detail"]
+        assert detail["code"] == "operation_blocked"
+        assert detail["operation"] == "database_delete"
+        assert any(item["reason"] == "active_database_export" for item in detail["blocked_by"])
+    finally:
+        _put_task(
+            TaskStatus(
+                task_id=blocker_task_id,
+                kind="export",
+                status="completed",
+                progress="Ready to download",
+                phase="pending_download",
+            )
+        )
+
+
+def test_create_database_is_blocked_by_active_exclusive_operation(auth_client: TestClient) -> None:
+    _login_admin(auth_client)
+    with exclusive_database_operation("database_switch"):
+        response = auth_client.post(
+            "/api/v1/export/database/create-new",
+            json={"name": "blocked-create"},
+        )
+
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "operation_blocked"
+    assert detail["operation"] == "database_create"
+    assert any(
+        item["reason"] == "active_exclusive_database_operation" for item in detail["blocked_by"]
+    )
+
+
 def test_non_admin_users_cannot_list_or_connect_database(auth_client: TestClient) -> None:
     _login_admin(auth_client)
     created = auth_client.post(
@@ -445,17 +789,17 @@ def test_admin_can_reach_upload_route_contract(auth_client: TestClient) -> None:
     assert "connect" in uploaded.json()["detail"].lower()
 
 
-def test_task_status_includes_import_progress_fields(auth_client: TestClient) -> None:
+def test_task_status_includes_export_progress_fields(auth_client: TestClient) -> None:
     _login_admin(auth_client)
     task = TaskStatus(
         task_id="progress-task",
-        kind="import",
-        phase="importing",
-        sub_phase="loading",
-        progress="Loading measurements_raw (12/16)…",
+        kind="export",
+        phase="exporting",
+        sub_phase="",
+        progress="Exporting dim_event (12/16)…",
         current=12,
         total=16,
-        current_table="measurements_raw",
+        current_table="dim_event",
     )
     _put_task(task)
 
@@ -463,28 +807,23 @@ def test_task_status_includes_import_progress_fields(auth_client: TestClient) ->
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["sub_phase"] == "loading"
+    assert body["sub_phase"] == ""
     assert body["updated_at"] > 0
     assert body["current"] == 12
     assert body["total"] == 16
 
 
-def test_import_task_has_longer_stall_threshold_than_export(
+def test_export_task_stall_threshold_remains_two_minutes(
     auth_client: TestClient,
 ) -> None:
     _login_admin(auth_client)
-    _put_task(TaskStatus(task_id="slow-import", kind="import", progress="Backing up"))
     _put_task(TaskStatus(task_id="slow-export", kind="export", progress="Exporting"))
-    for task_id in ("slow-import", "slow-export"):
-        task = get_task(task_id)
-        assert task is not None
-        task.updated_at = time.time() - 180
+    task = get_task("slow-export")
+    assert task is not None
+    task.updated_at = time.time() - 180
 
-    import_response = auth_client.get("/api/v1/export/database/parquet/task/slow-import")
     export_response = auth_client.get("/api/v1/export/database/parquet/task/slow-export")
 
-    assert import_response.status_code == 200, import_response.text
-    assert import_response.json()["status"] == "running"
     assert export_response.status_code == 200, export_response.text
     assert export_response.json()["status"] == "failed"
     assert "2 minutes" in export_response.json()["error"]

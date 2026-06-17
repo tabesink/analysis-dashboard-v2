@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Maximize2, AlertTriangle } from 'lucide-react';
+import { Maximize2 } from 'lucide-react';
 import { useRenderStore } from '@/stores/render-store';
 import { useFilterState } from '@/hooks/use-filter-state';
 import { useCurveColoring } from '@/hooks/use-curve-coloring';
@@ -70,7 +70,6 @@ export function PlotGrid({
     allSelectedEventIds,
     renderedEventIds,
     isSessionReady,
-    hasUnrenderedChanges,
     setRenderedEventIds,
   } = useFilterState();
 
@@ -312,19 +311,6 @@ export function PlotGrid({
 
   return (
     <div className="relative flex flex-col h-full">
-      {/* Selection Changed Indicator */}
-      {hasUnrenderedChanges && (
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 rounded-md shadow-sm">
-            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-            <span className="text-label text-amber-600 dark:text-amber-400">
-              Selection changed — click Render to update
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Plot Grid */}
       <div className="flex-1 overflow-auto px-4 pt-2 pb-4">
         <div className={`grid ${gridCols} gap-3`}>
           {(DEFAULT_PLOT_KEYS_ARRAY as readonly string[]).map((plotKey) => (

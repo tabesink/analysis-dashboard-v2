@@ -1,4 +1,5 @@
 import { toast } from 'sonner';
+import { showShortInfoToast } from '@/lib/feedback/short-info-toast';
 
 import type { DamageCalculationCompletionToast } from '@/features/edit-metadata/lib/damage-calculation-task-completion';
 
@@ -13,7 +14,7 @@ let toastEmitter: ToastEmitter = (toastMessage) => {
     toast.success(toastMessage.message);
     return;
   }
-  toast.info(toastMessage.message);
+  showShortInfoToast(toastMessage.message);
 };
 
 export function emitDamageCalculationCompletionToast(
@@ -36,6 +37,6 @@ export function resetDamageCalculationToastEmitterForTests(): void {
       toast.success(toastMessage.message);
       return;
     }
-    toast.info(toastMessage.message);
+    showShortInfoToast(toastMessage.message);
   };
 }

@@ -61,4 +61,20 @@ describe('MetadataDialogHeader', () => {
 
     expect(markup).toContain('data-testid="metadata-dialog-status-skeleton"');
   });
+
+  it('renders flush at the top of a dialog card without outer spacing', () => {
+    mockUseQuery.mockReturnValue({
+      data: { events: [{ status: 'Pending' }] },
+      isLoading: false,
+      isFetching: false,
+    });
+
+    const markup = renderToStaticMarkup(
+      <MetadataDialogHeader programId="P1" version="V1" statusDraftValue={null} />,
+    );
+
+    expect(markup).toContain('data-testid="metadata-dialog-header"');
+    expect(markup).toContain('bg-muted/40');
+    expect(markup).not.toContain('mb-5');
+  });
 });

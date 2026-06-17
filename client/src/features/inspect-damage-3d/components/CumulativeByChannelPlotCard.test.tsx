@@ -67,7 +67,7 @@ describe('CumulativeByChannelPlotCard', () => {
     expect(markup).toContain('Scale context: linear');
   });
 
-  it('uses PlotCardShell empty state messaging when spec has empty data', () => {
+  it('renders empty axes when spec has no chart data', () => {
     const markup = renderToStaticMarkup(
       <CumulativeByChannelPlotCard
         spec={buildSpec({
@@ -81,9 +81,12 @@ describe('CumulativeByChannelPlotCard', () => {
       />,
     );
 
-    expect(markup).toContain('No cumulative channel totals');
-    expect(markup).toContain('The selected channels do not have renderable cumulative totals.');
+    expect(markup).toContain('Cumulative Damage by Channel grouped bar chart');
+    expect(markup).toContain('fill="#ffffff"');
+    expect(markup).toContain('stroke="#e5e7eb"');
+    expect(markup).not.toContain('data-plot-legend-overlay="true"');
     expect(markup).not.toContain('data-bar-id=');
+    expect(markup).not.toContain('No cumulative channel totals');
   });
 
   it('renders loading and error card-shell states', () => {

@@ -49,4 +49,19 @@ describe('executeScopeDelete', () => {
     expect(result.deletedEventCount).toBe(5);
     expect(result.deletedArtifactCount).toBe(1);
   });
+
+  it('returns timeout guidance when request is cancelled client-side', async () => {
+    deleteProgramVersionScope.mockRejectedValue(new Error('Request Cancelled'));
+    const plan = buildScopeDeletePlan([`${PROGRAM_SCOPE_PREFIX}P1`], programVersions);
+
+    const result = await executeScopeDelete({
+      plan,
+      deleteProgramVersionScope,
+      deleteDatasets,
+      onProgress: vi.fn(),
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.errorMessage).toContain('Delete request timed out');
+  });
 });

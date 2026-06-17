@@ -67,6 +67,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.state.session_manager = SessionManager(app.state.db)
 
+    from server.services.active_presence import reset_presence_state
+
+    reset_presence_state()
+
     # Initialize host-local identity storage before auth services are used.
     from server.storage.identity import IdentityStore, migrate_legacy_dashboard_users
 
@@ -86,12 +90,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:
         logger.exception("admin bootstrap failed")
 
-    from server.services.export import (
-        cleanup_stale_import_staging_file,
-        reconcile_persisted_parquet_tasks,
-    )
+    from server.services.export import reconcile_persisted_parquet_tasks
 
-    cleanup_stale_import_staging_file(settings.database_path)
     reconcile_persisted_parquet_tasks()
 
     logger.info("Server ready to accept requests")

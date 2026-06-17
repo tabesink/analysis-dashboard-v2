@@ -1,29 +1,35 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DerivedDataOperationModal } from '@/features/edit-metadata/DerivedDataOperationModal';
 
+const { mockAlertDialog } = vi.hoisted(() => ({
+  mockAlertDialog: vi.fn(
+    ({
+      children,
+      open,
+      containerClassName,
+    }: {
+      children: React.ReactNode;
+      open: boolean;
+      containerClassName?: string;
+    }) =>
+      open ? (
+        <div
+          data-testid="derived-data-dialog"
+          data-shell-operation-modal-layer={containerClassName?.includes('z-[70]') ? 'true' : 'false'}
+          data-shell-operation-modal-pointer-events={
+            containerClassName?.includes('pointer-events-auto') ? 'true' : 'false'
+          }
+        >
+          {children}
+        </div>
+      ) : null,
+  ),
+}));
+
 vi.mock('@/components/ui/alert-dialog', () => ({
-  AlertDialog: ({
-    children,
-    open,
-    containerClassName,
-  }: {
-    children: React.ReactNode;
-    open: boolean;
-    containerClassName?: string;
-  }) =>
-    open ? (
-      <div
-        data-testid="derived-data-dialog"
-        data-shell-operation-modal-layer={containerClassName?.includes('z-[70]') ? 'true' : 'false'}
-        data-shell-operation-modal-pointer-events={
-          containerClassName?.includes('pointer-events-auto') ? 'true' : 'false'
-        }
-      >
-        {children}
-      </div>
-    ) : null,
+  AlertDialog: mockAlertDialog,
   AlertDialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   AlertDialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   AlertDialogTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
@@ -31,6 +37,10 @@ vi.mock('@/components/ui/alert-dialog', () => ({
 }));
 
 describe('DerivedDataOperationModal', () => {
+  beforeEach(() => {
+    mockAlertDialog.mockClear();
+  });
+
   it('shows damage calculation progress with locked live messages', () => {
     const markup = renderToStaticMarkup(
       <DerivedDataOperationModal
@@ -114,7 +124,7 @@ describe('DerivedDataOperationModal', () => {
     expect(markup).toContain('data-shell-operation-modal-pointer-events="true"');
   });
 
-  it('communicates that closing the modal does not cancel processing', () => {
+  it('keeps active progress non-dismissible and removes background-close affordance', () => {
     const markup = renderToStaticMarkup(
       <DerivedDataOperationModal
         open
@@ -123,13 +133,62 @@ describe('DerivedDataOperationModal', () => {
         progressPhase="validating"
         progressMessage="Validating artifact 1/3: event_a.csv"
         onOpenChange={() => {}}
-        onDismissProgress={() => {}}
       />,
     );
 
-    expect(markup).toContain('Closing this dialog does not cancel processing');
-    expect(markup).toContain('Close and continue in background');
+    expect(markup).not.toContain('Closing this dialog does not cancel processing');
+    expect(markup).not.toContain('Close and continue in background');
+    expect(markup).not.toContain('derived-data-dismiss-progress');
     expect(markup).not.toContain('Cancel');
+  });
+
+  it('blocks close requests through open-change while progress is active', () => {
+    const onOpenChange = vi.fn();
+    renderToStaticMarkup(
+      <DerivedDataOperationModal
+        open
+        wizardStep="progress"
+        progress={10}
+        progressPhase="validating"
+        progressMessage="Validating artifact 1/3: event_a.csv"
+        onOpenChange={onOpenChange}
+      />,
+    );
+
+    const alertDialogProps = mockAlertDialog.mock.calls.at(-1)?.[0] as
+      | { onOpenChange: (next: boolean) => void }
+      | undefined;
+    expect(alertDialogProps).toBeDefined();
+
+    alertDialogProps?.onOpenChange(false);
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it('allows open-change close requests after progress reaches summary', () => {
+    const onOpenChange = vi.fn();
+    renderToStaticMarkup(
+      <DerivedDataOperationModal
+        open
+        wizardStep="summary"
+        progress={100}
+        progressPhase="generating"
+        progressMessage=""
+        completionResult={{
+          success: true,
+          title: 'Channel reprocess complete',
+          message: 'All artifacts processed.',
+        }}
+        onOpenChange={onOpenChange}
+      />,
+    );
+
+    const alertDialogProps = mockAlertDialog.mock.calls.at(-1)?.[0] as
+      | { onOpenChange: (next: boolean) => void }
+      | undefined;
+    expect(alertDialogProps).toBeDefined();
+
+    alertDialogProps?.onOpenChange(false);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it('shows a warning completion summary for partial failures', () => {

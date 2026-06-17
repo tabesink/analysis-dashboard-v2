@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-from server.upload.task_kinds import TASK_KIND_FOLDER_UPLOAD
+from server.upload.task_kinds import DERIVED_DATA_TASK_KINDS, TASK_KIND_FOLDER_UPLOAD
 
 FOLDER_UPLOAD_TASK_KIND = TASK_KIND_FOLDER_UPLOAD
 FOLDER_UPLOAD_PHASE_UPLOAD_RECEIVED = "upload_received"
@@ -59,6 +59,18 @@ class ProgramVersionScopeDeletePolicyStore(Protocol):
         self,
         program_id: str,
         version: str | None,
+        user_id: str,
+        is_admin: bool,
+    ) -> bool: ...
+
+
+class UploadTaskCancelPolicyStore(Protocol):
+    """Store protocol for derived-task scope ownership checks."""
+
+    def user_can_edit_program_version(
+        self,
+        program_id: str,
+        version: str,
         user_id: str,
         is_admin: bool,
     ) -> bool: ...
@@ -163,4 +175,38 @@ def has_scope_delete_uploaded_data_policy(
         user_id,
         has_uploaded_data_admin_policy(role=role),
     )
+
+
+def has_upload_task_cancel_policy(
+    *,
+    store: UploadTaskCancelPolicyStore,
+    task_kind: str,
+    task_row: dict[str, object],
+    user_id: str,
+    role: str,
+) -> bool:
+    """Apply folder/derived cancel authorization without leaking route details."""
+    if has_uploaded_data_admin_policy(role=role):
+        return True
+
+    if task_kind == TASK_KIND_FOLDER_UPLOAD:
+        return str(task_row.get("created_by_user_id") or "") == user_id
+
+    if task_kind in DERIVED_DATA_TASK_KINDS:
+        raw_scope = task_row.get("scope_json")
+        if not isinstance(raw_scope, dict):
+            return False
+        program_id = str(raw_scope.get("program_id") or "").strip()
+        version = str(raw_scope.get("version") or "").strip()
+        if not program_id or not version:
+            return False
+        return has_contributor_edit_uploaded_data_policy(
+            store=store,
+            program_id=program_id,
+            version=version,
+            user_id=user_id,
+            role=role,
+        )
+
+    return False
 

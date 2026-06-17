@@ -216,7 +216,7 @@ function ConnectDatabaseList({
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate">{name}</span>
                 <div className="flex items-center gap-2">
-                  {isCurrent ? <span className="text-[10px] text-muted-foreground">current</span> : null}
+                  {isCurrent ? <span className="text-xs text-muted-foreground">current</span> : null}
                   {isSelected && connectAction === 'connect' ? <Check className="size-3.5" /> : null}
                 </div>
               </div>

@@ -886,6 +886,21 @@ tables:
       scope_json:
         type: JSON
         additive: true
+      started_at:
+        type: TIMESTAMP
+        additive: true
+      cancel_requested_at:
+        type: TIMESTAMP
+        additive: true
+      finished_at:
+        type: TIMESTAMP
+        additive: true
+      last_heartbeat_at:
+        type: TIMESTAMP
+        additive: true
+      runner_id:
+        type: VARCHAR
+        additive: true
 
   saved_filters:
     description: Saved filter presets

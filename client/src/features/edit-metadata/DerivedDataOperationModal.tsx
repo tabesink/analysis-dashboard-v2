@@ -33,7 +33,6 @@ export interface DerivedDataOperationModalProps {
   progressPhase: ChannelReprocessProgressPhase | DamageCalculationProgressPhase;
   progressMessage: string;
   completionResult?: UploadCompletionResult | DamageCalculationCompletionResult | null;
-  onDismissProgress?: () => void;
   onCloseSummary?: () => void;
   onPrimaryAction?: () => void;
 }
@@ -64,7 +63,6 @@ export function DerivedDataOperationModal({
   progressPhase,
   progressMessage,
   completionResult,
-  onDismissProgress,
   onCloseSummary,
   onPrimaryAction,
 }: DerivedDataOperationModalProps) {
@@ -102,11 +100,15 @@ export function DerivedDataOperationModal({
   }, [open, wizardStep]);
 
   const title = modalTitle(taskKind, wizardStep, completionResult?.title);
+  const handleOpenChange = (next: boolean) => {
+    if (!next && wizardStep === 'progress') return;
+    onOpenChange(next);
+  };
 
   return (
     <AlertDialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={handleOpenChange}
       containerClassName={SHELL_OPERATION_MODAL_LAYER_CLASS}
       backdropClassName={SHELL_OPERATION_MODAL_BACKDROP_CLASS}
     >
@@ -157,21 +159,7 @@ export function DerivedDataOperationModal({
 
         <AlertDialogFooter className="flex-col sm:flex-row gap-2 sm:justify-between sm:items-center">
           {wizardStep === 'progress' ? (
-            <div className="flex flex-col gap-2 w-full sm:w-auto sm:max-w-[60%]">
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Closing this dialog does not cancel processing. Work continues in the
-                background and can be reopened from Edit Metadata.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full sm:w-auto"
-                data-testid="derived-data-dismiss-progress"
-                onClick={() => onDismissProgress?.()}
-              >
-                Close and continue in background
-              </Button>
-            </div>
+            <span className="hidden sm:block sm:flex-1" />
           ) : (
             <span className="hidden sm:block sm:flex-1" />
           )}

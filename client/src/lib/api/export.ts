@@ -1,32 +1,8 @@
 /**
- * Export/Import API — Parquet + ZIP portability (admin-only on server).
+ * Export API — Parquet + ZIP portability (admin-only on server).
  */
 
-import { APIError, fetchJsonGet, getApiBaseUrl, postFormDataWithProgress } from './client';
-
-export interface SchemaCompatibility {
-  is_compatible: boolean;
-  is_legacy: boolean;
-  imported_schema_version: number | null;
-  current_schema_version: number;
-  schema_version_match: boolean;
-  missing_columns: string[];
-  extra_columns: string[];
-}
-
-export interface DatabaseValidationResponse {
-  valid: boolean;
-  event_count: number;
-  size_mb: number;
-  tables: string[];
-  schema_compatibility: SchemaCompatibility;
-  warnings: string[];
-}
-
-export interface UploadAndValidateResponse {
-  upload_id: string;
-  validation: DatabaseValidationResponse;
-}
+import { APIError, fetchJsonGet, getApiBaseUrl } from './client';
 
 export interface StartTaskResponse {
   task_id: string;
@@ -37,9 +13,9 @@ export interface TaskStatusResponse {
   kind: string;
   status: string;
   progress: string;
-  /** Server-reported phase: exporting, compressing, pending_download, downloading, extracting, importing, completed, failed, cancelled */
+  /** Server-reported phase: exporting, compressing, pending_download, downloading, completed, failed, cancelled */
   phase: string;
-  /** Stable import sub-phase: backing_up, clearing, loading, finalizing */
+  /** Reserved for compatibility; export currently does not use sub-phases. */
   sub_phase?: string;
   current: number;
   total: number;
@@ -56,7 +32,7 @@ export interface DatabaseInfoResponse {
   size_mb: number;
   event_count: number;
   program_count: number;
-  /** Server max size for database import ZIP (MB) */
+  /** Server max size for large upload payloads (MB) */
   max_upload_size_mb: number;
 }
 
@@ -114,9 +90,6 @@ const POLL_MS = 2000;
 const RETRYABLE_POLL_STATUSES = new Set([502, 503, 504]);
 const TASK_POLL_RETRY_WINDOW_MS = 15 * 60 * 1000;
 const TASK_POLL_MAX_BACKOFF_MS = 30_000;
-/** Large DB ZIP imports (multi-GB) */
-const PARQUET_ZIP_UPLOAD_TIMEOUT_MS = 30 * 60 * 1000;
-
 async function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -136,14 +109,13 @@ function classifyTaskPollError(error: unknown): RetryablePollError {
     if (error.status === 404) {
       return {
         retryable: false,
-        message:
-          'Import task state is no longer available. The server may have restarted; check server logs for Database imported, Import task failed, OOM, or killed before retrying.',
+        message: 'Export task state is no longer available.',
       };
     }
     if (RETRYABLE_POLL_STATUSES.has(error.status)) {
       return {
         retryable: true,
-        message: 'Waiting for server… import may still be running.',
+        message: 'Waiting for server… export may still be running.',
       };
     }
     return { retryable: false, message: error.message };
@@ -152,7 +124,7 @@ function classifyTaskPollError(error: unknown): RetryablePollError {
   if (error instanceof TypeError) {
     return {
       retryable: true,
-      message: 'Waiting for server… import may still be running.',
+      message: 'Waiting for server… export may still be running.',
     };
   }
 
@@ -165,47 +137,6 @@ function classifyTaskPollError(error: unknown): RetryablePollError {
 function nextPollBackoff(previousMs: number): number {
   if (previousMs <= 0) return POLL_MS;
   return Math.min(previousMs * 2, TASK_POLL_MAX_BACKOFF_MS);
-}
-
-export interface InferredImportOutcome {
-  likelySucceeded: boolean;
-  message: string;
-  eventCount?: number;
-}
-
-export async function inferImportOutcomeAfterTaskLost(
-  validation: DatabaseValidationResponse | null,
-): Promise<InferredImportOutcome> {
-  if (!validation?.valid) {
-    return {
-      likelySucceeded: false,
-      message:
-        'Import task status was lost before completion. Check server logs before retrying.',
-    };
-  }
-
-  try {
-    const info = await exportApi.getDatabaseInfo();
-    const archiveEvents = validation.event_count;
-    if (info.event_count === archiveEvents) {
-      return {
-        likelySucceeded: true,
-        message: `The live database now has ${info.event_count.toLocaleString()} events, matching the import archive. The import may have finished before task status was lost (for example, a server restart). Verify dashboards before importing again.`,
-        eventCount: info.event_count,
-      };
-    }
-    return {
-      likelySucceeded: false,
-      message: `Task status was lost. The live database has ${info.event_count.toLocaleString()} events; the archive had ${archiveEvents.toLocaleString()}. The import likely did not finish cleanly — check server logs before retrying.`,
-      eventCount: info.event_count,
-    };
-  } catch {
-    return {
-      likelySucceeded: false,
-      message:
-        'Import task status was lost and the database could not be checked. See server logs for Database imported or Import task failed before retrying.',
-    };
-  }
 }
 
 export const exportApi = {
@@ -283,55 +214,7 @@ export const exportApi = {
     return response.blob();
   },
 
-  /**
-   * @deprecated Database import was removed from the active product surface (REF37-07).
-   * Calls now return 410 from the server with replacement guidance.
-   */
-  uploadParquetZip: async (
-    file: File,
-    options?: {
-      onProgress?: (percent: number, isProcessing: boolean) => void;
-      signal?: AbortSignal;
-    },
-  ): Promise<UploadAndValidateResponse> => {
-    const formData = new FormData();
-    formData.append('file', file);
-    return postFormDataWithProgress<UploadAndValidateResponse>(
-      '/api/v1/export/database/parquet/upload',
-      formData,
-      options?.onProgress,
-      PARQUET_ZIP_UPLOAD_TIMEOUT_MS,
-      options?.signal,
-    );
-  },
-
-  /**
-   * @deprecated Database import was removed from the active product surface (REF37-07).
-   * Calls now return 410 from the server with replacement guidance.
-   */
-  startParquetImport: async (uploadId: string): Promise<StartTaskResponse> => {
-    const response = await fetchWithCredentials(
-      `/api/v1/export/database/parquet/import/${uploadId}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      },
-    );
-    return response.json();
-  },
-
-  /**
-   * @deprecated Database import was removed from the active product surface (REF37-07).
-   * Calls now return 410 from the server with replacement guidance.
-   */
-  cancelParquetUpload: async (uploadId: string): Promise<void> => {
-    await fetchWithCredentials(`/api/v1/export/database/parquet/upload/${uploadId}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-    });
-  },
-
-  /** Cancel a running export/import background task (best-effort). */
+  /** Cancel a running export background task (best-effort). */
   cancelParquetTask: async (taskId: string): Promise<void> => {
     await fetchWithCredentials(`/api/v1/export/database/parquet/task/${taskId}`, {
       method: 'DELETE',
@@ -377,7 +260,7 @@ export const exportApi = {
         }
         if (now - retryStartedAt.current > TASK_POLL_RETRY_WINDOW_MS) {
           throw new Error(
-            'Lost contact with the server during import. Check server logs for Database imported, Import task failed, OOM, or killed before retrying.',
+            'Lost contact with the server during export. Check server logs before retrying.',
           );
         }
 

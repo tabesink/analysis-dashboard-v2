@@ -1,11 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AlertCircle, Info, Loader2, RotateCcw, RotateCw, Save, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { MetadataDialogHeader } from '@/components/edit-metadata/MetadataDialogHeader';
+import {
+  DialogCardFooter,
+  DialogContentCard,
+} from '@/components/shared/dialog-layout';
 import { Input } from '@/components/ui/input';
 import { ChannelMapUploadDialog } from '@/components/edit-metadata/ChannelMapUploadDialog';
 import { CsvPreviewTable } from '@/features/database/datasets';
@@ -34,6 +38,7 @@ export interface AssignChannelsPanelScope {
 export interface AssignChannelsPanelProps {
   scope: AssignChannelsPanelScope;
   canWrite?: boolean;
+  scopeAlert?: ReactNode;
   onDirtyChange?: (isDirty: boolean) => void;
 }
 
@@ -62,6 +67,7 @@ function cloneChannelMapDraft(draft: ChannelMapDraft): ChannelMapDraft {
 export function AssignChannelsPanel({
   scope,
   canWrite = true,
+  scopeAlert,
   onDirtyChange,
 }: AssignChannelsPanelProps) {
   const { programId, version } = scope;
@@ -219,14 +225,63 @@ export function AssignChannelsPanel({
   }
 
   return (
-    <Card
+    <>
+    <DialogContentCard
       data-testid="assign-channels-panel"
       data-scope={`${programId}::${version}`}
       data-is-dirty={String(isDirty)}
       data-can-write={String(canWrite)}
-      className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden rounded-lg border bg-card py-0 shadow-subtle"
+      className="min-h-0 flex-1"
+      bodyClassName="flex min-h-0 flex-1 flex-col"
+      contextBar={
+        <MetadataDialogHeader programId={programId} version={version} statusDraftValue={null} />
+      }
+      alertBar={scopeAlert}
+      footer={
+        <DialogCardFooter>
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="assign-channels-upload"
+            onClick={() => setUploadDialogOpen(true)}
+            disabled={!canWrite || channelMapOperationInProgress || channelMapQuery.isLoading}
+          >
+            <Upload className="size-4" />
+            Upload
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="assign-channels-reset"
+            onClick={() => (preResetSnapshot ? handleRestore() : handleReset())}
+            disabled={!canWrite || channelMapOperationInProgress || channelMapQuery.isLoading}
+          >
+            {preResetSnapshot ? <RotateCw className="size-4" /> : <RotateCcw className="size-4" />}
+            {preResetSnapshot ? 'Restore' : 'Reset'}
+          </Button>
+          <Button
+            type="button"
+            data-testid="assign-channels-save"
+            onClick={() => void handleSaveChannelMap()}
+            disabled={
+              channelMapOperationInProgress || !canWrite || !channelMapQuery.data?.column_count
+            }
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="size-4" />
+                Save
+              </>
+            )}
+          </Button>
+        </DialogCardFooter>
+      }
     >
-      <CardContent className="flex min-h-0 flex-1 flex-col p-4">
       {channelMapQuery.isLoading ? (
         <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
@@ -250,7 +305,7 @@ export function AssignChannelsPanel({
               <div className="sticky top-0 z-10 shrink-0 bg-card">
                 <div className="h-7 shrink-0 border-b bg-muted/60" aria-hidden="true" />
                 <div
-                  className={`grid h-8 shrink-0 ${CHANNEL_MAP_PLOT_TABLE_GRID_COLS} border-b bg-muted/40 text-[11px] font-medium leading-none text-muted-foreground`}
+                  className={`grid h-8 shrink-0 ${CHANNEL_MAP_PLOT_TABLE_GRID_COLS} border-b bg-muted/40 text-xs font-medium leading-none text-muted-foreground`}
                 >
                   <div className="flex h-8 items-center border-r border-border bg-muted/40 px-3 text-foreground">
                     <span>Plot</span>
@@ -325,72 +380,29 @@ export function AssignChannelsPanel({
               maxRows={CHANNEL_MAP_DATA_ROW_COUNT}
               columnCount={channelMapQuery.data?.column_count ?? 0}
               fallbackColumnCount={CHANNEL_MAP_PREVIEW_FALLBACK_COLUMN_COUNT}
+              dropDecimalsFromColumn={2}
             />
           </div>
         </div>
-        <div className="mt-4 flex shrink-0 items-center justify-end gap-2 border-t pt-4">
-          <Button
-            type="button"
-            variant="outline"
-            data-testid="assign-channels-upload"
-            onClick={() => setUploadDialogOpen(true)}
-            disabled={!canWrite || channelMapOperationInProgress || channelMapQuery.isLoading}
-          >
-            <Upload className="size-4" />
-            Upload
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            data-testid="assign-channels-reset"
-            onClick={() => (preResetSnapshot ? handleRestore() : handleReset())}
-            disabled={!canWrite || channelMapOperationInProgress || channelMapQuery.isLoading}
-          >
-            {preResetSnapshot ? <RotateCw className="size-4" /> : <RotateCcw className="size-4" />}
-            {preResetSnapshot ? 'Restore' : 'Reset'}
-          </Button>
-          <Button
-            type="button"
-            data-testid="assign-channels-save"
-            onClick={() => void handleSaveChannelMap()}
-            disabled={
-              channelMapOperationInProgress || !canWrite || !channelMapQuery.data?.column_count
-            }
-          >
-            {isSaving ? (
-              <>
-                <Loader2 className="size-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Save className="size-4" />
-                Save
-              </>
-            )}
-          </Button>
-        </div>
       </div>
-      </CardContent>
-
-      <ChannelMapUploadDialog
-        open={uploadDialogOpen}
-        onOpenChange={setUploadDialogOpen}
-        programId={programId}
-        version={version}
-        disabled={!canWrite}
-        isUploading={isUploading}
-        onUpload={handleUploadChannelMap}
-      />
-
       {channelMapQuery.data?.missing_channel_map ? (
-        <div className="px-4 pb-4 text-xs leading-4 text-muted-foreground">
+        <div className="mt-3 text-xs leading-4 text-muted-foreground">
           <span className="inline-flex items-center gap-1 text-destructive">
             <AlertCircle className="size-3.5" />
             Channel map required before these files can be plotted.
           </span>
         </div>
       ) : null}
-    </Card>
+    </DialogContentCard>
+    <ChannelMapUploadDialog
+      open={uploadDialogOpen}
+      onOpenChange={setUploadDialogOpen}
+      programId={programId}
+      version={version}
+      disabled={!canWrite}
+      isUploading={isUploading}
+      onUpload={handleUploadChannelMap}
+    />
+  </>
   );
 }

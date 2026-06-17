@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card';
 import { DashboardTabs } from './DashboardTabs';
 import { DashboardWorkspaceActions } from './shared';
 import { useDashboardWorkspace } from '@/modules/dashboard-workspace';
+import { usePendingRenderToast } from '@/hooks/use-pending-render-toast';
 import { useRenderStore } from '@/stores/render-store';
 import { usePinnedEventsStore } from '@/stores/pinned-events-store';
 import { useUIStore } from '@/stores/ui-store';
@@ -30,6 +31,7 @@ export function DashboardContent({
   className = '',
 }: DashboardContentProps) {
   const workspace = useDashboardWorkspace();
+  usePendingRenderToast(workspace.state.hasUnrenderedChanges);
 
   const isRendering = useRenderStore((s) => s.isRendering);
   const startRendering = useRenderStore((s) => s.startRendering);

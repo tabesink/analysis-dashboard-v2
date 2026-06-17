@@ -93,6 +93,38 @@ describe('channelReprocessStore', () => {
     expect(getChannelReprocessScopeState(scope)?.modalOpen).toBe(true);
   });
 
+  it('marks scoped task as cancelling when server reports cancelling progress', async () => {
+    waitForDerivedDataTask.mockImplementation(
+      async (_taskId: string, onUpdate: (event: Record<string, unknown>) => void) => {
+        onUpdate({
+          task_id: 'task-1',
+          task_kind: 'channel_reprocess',
+          status: 'cancelling',
+          phase: 'processing',
+          completed_events: 1,
+          total_events: 3,
+          progress_message: 'Cancelling safely...',
+        });
+        return {
+          task_id: 'task-1',
+          task_kind: 'channel_reprocess',
+          status: 'cancelled',
+          phase: 'cancelled',
+          completed_events: 1,
+          total_events: 3,
+        };
+      },
+    );
+
+    trackChannelReprocessTask({ scope, taskId: 'task-1', queryClient });
+
+    await vi.waitFor(() => {
+      const scoped = getChannelReprocessScopeState(scope);
+      expect(scoped?.status).toBe('cancelled');
+      expect(scoped?.wizardStep).toBe('summary');
+    });
+  });
+
   it('can reopen the modal from the inline banner', () => {
     waitForDerivedDataTask.mockReturnValue(new Promise(() => {}));
 

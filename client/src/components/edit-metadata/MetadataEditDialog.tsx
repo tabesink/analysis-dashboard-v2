@@ -19,7 +19,7 @@ import { DamageCalculationBanner } from "@/components/edit-metadata/DamageCalcul
 import { AssignChannelsPanel } from "@/components/edit-metadata/AssignChannelsPanel";
 import { DurabilitySchedulePanel } from "@/components/edit-metadata/DurabilitySchedulePanel";
 import { EditMetadataPanel } from "@/components/edit-metadata/EditMetadataPanel";
-import { MetadataDialogHeader } from "@/components/edit-metadata/MetadataDialogHeader";
+import { DialogPageHeader } from "@/components/shared/dialog-layout";
 import {
   isMetadataDialogDirty,
   resolveMetadataDialogCloseRequest,
@@ -30,6 +30,7 @@ import {
 } from "@/features/edit-metadata/lib/metadata-discard-prompt";
 import {
   isMetadataDialogSectionActive,
+  metadataDialogSectionLabel,
   metadataDialogSectionNavClassName,
   type MetadataDialogSection,
 } from "@/features/edit-metadata/lib/metadata-dialog-sections";
@@ -166,6 +167,23 @@ export function MetadataEditDialog() {
       version,
       pendingScope: pendingScope ?? undefined,
     });
+  const scopeAlert =
+    showChannelReprocessBanner || showDamageCalculationBanner ? (
+      <>
+        {showChannelReprocessBanner && channelReprocessState ? (
+          <ChannelReprocessBanner
+            progressMessage={channelReprocessState.progressMessage}
+            onReopen={() => reopenChannelReprocessModal(scope)}
+          />
+        ) : null}
+        {showDamageCalculationBanner && damageCalculationState ? (
+          <DamageCalculationBanner
+            progressMessage={damageCalculationState.progressMessage}
+            onReopen={() => reopenDamageCalculationModal(scope)}
+          />
+        ) : null}
+      </>
+    ) : undefined;
 
   return (
     <>
@@ -174,7 +192,7 @@ export function MetadataEditDialog() {
           <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-white/70 backdrop-blur-[1px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 dark:bg-black/45" />
           <DialogPrimitive.Content
             data-testid="metadata-edit-dialog"
-            className="fixed left-1/2 top-1/2 z-50 h-[min(720px,calc(100vh-96px))] w-[min(1470px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)] p-0 shadow-sm outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+            className="fixed left-1/2 top-1/2 z-50 h-[min(720px,calc(100vh-96px))] w-[min(1470px,calc(100vw-48px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border border-border bg-background p-0 shadow-subtle outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
             onEscapeKeyDown={(event) => {
               event.preventDefault();
               requestClose();
@@ -192,7 +210,7 @@ export function MetadataEditDialog() {
               Event Details for {programId} {version}
             </DialogPrimitive.Title>
             <div className="grid h-full min-h-0 grid-cols-[180px_1fr]">
-              <aside className="border-r border-[var(--border)] bg-[var(--background)] px-3 py-4">
+              <aside className="border-r border-border bg-background px-3 py-4">
                 <div className="mb-4 flex items-center gap-2 px-1">
                   <Button
                     ref={closeButtonRef}
@@ -201,7 +219,7 @@ export function MetadataEditDialog() {
                     size="icon-sm"
                     aria-label="Close metadata editor"
                     onClick={requestClose}
-                    className="rounded-full text-[var(--foreground)] hover:bg-[var(--secondary)]"
+                    className="rounded-full text-foreground hover:bg-secondary"
                   >
                     <X className="size-4" />
                   </Button>
@@ -263,23 +281,7 @@ export function MetadataEditDialog() {
               </aside>
 
               <section className="flex min-h-0 flex-col overflow-hidden px-6 py-4">
-                <MetadataDialogHeader
-                  programId={programId}
-                  version={version}
-                  statusDraftValue={statusDraftValue}
-                />
-                {showChannelReprocessBanner && channelReprocessState ? (
-                  <ChannelReprocessBanner
-                    progressMessage={channelReprocessState.progressMessage}
-                    onReopen={() => reopenChannelReprocessModal(scope)}
-                  />
-                ) : null}
-                {showDamageCalculationBanner && damageCalculationState ? (
-                  <DamageCalculationBanner
-                    progressMessage={damageCalculationState.progressMessage}
-                    onReopen={() => reopenDamageCalculationModal(scope)}
-                  />
-                ) : null}
+                <DialogPageHeader title={metadataDialogSectionLabel(activeSection)} />
                 <div
                   data-testid="metadata-dialog-section-edit-metadata"
                   className="flex min-h-0 flex-1 flex-col overflow-hidden"
@@ -288,6 +290,8 @@ export function MetadataEditDialog() {
                   <EditMetadataPanel
                     scope={scope}
                     canWrite={canWrite}
+                    scopeAlert={scopeAlert}
+                    statusDraftValue={statusDraftValue}
                     onDirtyChange={setIsMetadataDirty}
                     onStatusDraftChange={setStatusDraftValue}
                   />
@@ -300,6 +304,7 @@ export function MetadataEditDialog() {
                   <AssignChannelsPanel
                     scope={scope}
                     canWrite={canWrite}
+                    scopeAlert={scopeAlert}
                     onDirtyChange={setIsChannelMapDirty}
                   />
                 </div>
@@ -312,6 +317,7 @@ export function MetadataEditDialog() {
                     scope={scope}
                     canWrite={canWrite}
                     showUploadAffordance
+                    scopeAlert={scopeAlert}
                     onDirtyChange={setIsScheduleDirty}
                   />
                 </div>

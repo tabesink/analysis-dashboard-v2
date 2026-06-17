@@ -13,6 +13,7 @@ from server.upload.policies import (
     SCOPE_DELETE_FORBIDDEN_DETAIL,
     classify_upload_filenames,
     has_contributor_edit_uploaded_data_policy,
+    has_upload_task_cancel_policy,
     has_scope_delete_uploaded_data_policy,
     has_uploaded_data_admin_policy,
     require_data_files,
@@ -21,7 +22,6 @@ from server.upload.task_kinds import (
     ACTIVE_TASK_STATUSES,
     ACTIVE_UPLOAD_TASK_KINDS,
     DERIVED_DATA_TASK_KINDS,
-    REMOVED_TASK_KIND_DATABASE_IMPORT,
     TASK_KIND_CHANNEL_REPROCESS,
     TASK_KIND_DAMAGE_CALCULATION,
     TASK_KIND_DATABASE_EXPORT,
@@ -96,9 +96,8 @@ def test_shared_task_kind_contract_constants_remain_stable() -> None:
     assert TASK_KIND_CHANNEL_REPROCESS == "channel_reprocess"
     assert TASK_KIND_DAMAGE_CALCULATION == "damage_calculation"
     assert TASK_KIND_DATABASE_EXPORT == "database_export"
-    assert REMOVED_TASK_KIND_DATABASE_IMPORT == "database_import"
     assert DERIVED_DATA_TASK_KINDS == {"channel_reprocess", "damage_calculation"}
-    assert ACTIVE_TASK_STATUSES == {"queued", "running"}
+    assert ACTIVE_TASK_STATUSES == {"queued", "running", "cancelling"}
     assert ACTIVE_UPLOAD_TASK_KINDS == {
         "folder_upload",
         "channel_reprocess",
@@ -198,4 +197,90 @@ def test_permission_details_are_named_policy_contract_constants() -> None:
     assert SCOPE_DELETE_FORBIDDEN_DETAIL == (
         "This program/version contains data owned by another user. Contact an admin to delete it."
     )
+
+
+def test_cancel_policy_allows_folder_owner_or_admin() -> None:
+    class _Store:
+        def user_can_edit_program_version(
+            self,
+            program_id: str,
+            version: str,
+            user_id: str,
+            is_admin: bool,
+        ) -> bool:
+            return False
+
+    store = _Store()
+    task_row = {"created_by_user_id": "owner-id"}
+    assert (
+        has_upload_task_cancel_policy(
+            store=store,
+            task_kind="folder_upload",
+            task_row=task_row,
+            user_id="owner-id",
+            role="user",
+        )
+        is True
+    )
+    assert (
+        has_upload_task_cancel_policy(
+            store=store,
+            task_kind="folder_upload",
+            task_row=task_row,
+            user_id="other-id",
+            role="user",
+        )
+        is False
+    )
+    assert (
+        has_upload_task_cancel_policy(
+            store=store,
+            task_kind="folder_upload",
+            task_row=task_row,
+            user_id="other-id",
+            role="admin",
+        )
+        is True
+    )
+
+
+def test_cancel_policy_for_derived_tasks_uses_scope_ownership() -> None:
+    calls: list[tuple[str, str, str, bool]] = []
+
+    class _Store:
+        def user_can_edit_program_version(
+            self,
+            program_id: str,
+            version: str,
+            user_id: str,
+            is_admin: bool,
+        ) -> bool:
+            calls.append((program_id, version, user_id, is_admin))
+            return program_id == "P-owned" and version == "V1" and user_id == "owner-id"
+
+    store = _Store()
+    assert (
+        has_upload_task_cancel_policy(
+            store=store,
+            task_kind="channel_reprocess",
+            task_row={"scope_json": {"program_id": "P-owned", "version": "V1"}},
+            user_id="owner-id",
+            role="user",
+        )
+        is True
+    )
+    assert (
+        has_upload_task_cancel_policy(
+            store=store,
+            task_kind="damage_calculation",
+            task_row={"scope_json": {"program_id": "P-owned", "version": "V1"}},
+            user_id="other-id",
+            role="user",
+        )
+        is False
+    )
+    assert calls == [
+        ("P-owned", "V1", "owner-id", False),
+        ("P-owned", "V1", "other-id", False),
+    ]
 

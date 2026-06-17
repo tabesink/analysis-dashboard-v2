@@ -1,4 +1,4 @@
-import { toast } from 'sonner';
+import { showShortInfoToast } from '@/lib/feedback/short-info-toast';
 
 import type { DamageFailureReport } from '@/types/api';
 
@@ -32,5 +32,5 @@ export function emitBlockedPrecomputeToast(params: {
   version: string;
   report: DamageFailureReport;
 }): void {
-  toast.info(buildBlockedPrecomputeToastMessage(params));
+  showShortInfoToast(buildBlockedPrecomputeToastMessage(params));
 }

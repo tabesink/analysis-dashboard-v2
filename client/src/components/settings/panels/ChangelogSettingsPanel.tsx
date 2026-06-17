@@ -3,12 +3,15 @@
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { ChangelogContent } from '@/components/changelog/ChangelogContent';
+import { DialogContentCard } from '@/components/shared/dialog-layout';
 
 type ChangelogResponse = {
   markdown: string | null;
   sourcePath?: string;
   error?: string;
 };
+
+const changelogPanelCardClassName = 'min-h-0 flex-1 border-0 bg-transparent shadow-none';
 
 export function ChangelogSettingsPanel() {
   const [markdown, setMarkdown] = useState<string | null>(null);
@@ -45,22 +48,36 @@ export function ChangelogSettingsPanel() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
-        Loading changelog...
-      </div>
+      <DialogContentCard
+        className={changelogPanelCardClassName}
+        bodyClassName="flex min-h-0 flex-1 flex-col p-0"
+      >
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          Loading changelog...
+        </div>
+      </DialogContentCard>
     );
   }
 
   if (!markdown) {
     return (
-      <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
-        Unable to load changelog content. Expected `Dashboard/CHANGELOG.md` in
-        development or `/app/CHANGELOG.md` in the production container.
-        {sourcePath ? ` Last attempted path: ${sourcePath}.` : ''}
-      </div>
+      <DialogContentCard className={changelogPanelCardClassName} bodyClassName="p-0">
+        <div className="text-sm text-muted-foreground">
+          Unable to load changelog content. Expected `Dashboard/CHANGELOG.md` in
+          development or `/app/CHANGELOG.md` in the production container.
+          {sourcePath ? ` Last attempted path: ${sourcePath}.` : ''}
+        </div>
+      </DialogContentCard>
     );
   }
 
-  return <ChangelogContent markdown={markdown} />;
+  return (
+    <DialogContentCard
+      className={changelogPanelCardClassName}
+      bodyClassName="flex min-h-0 flex-1 flex-col overflow-y-auto p-0"
+    >
+      <ChangelogContent markdown={markdown} />
+    </DialogContentCard>
+  );
 }

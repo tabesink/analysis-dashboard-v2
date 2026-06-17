@@ -167,7 +167,7 @@ export interface DerivedTaskStartResponse {
 export interface DerivedTaskStatusEvent {
   task_id: string;
   task_kind: DerivedTaskKind;
-  status: string;
+  status: 'queued' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
   phase: string;
   sub_phase?: string | null;
   progress_message?: string | null;

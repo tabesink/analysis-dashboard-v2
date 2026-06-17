@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { exportApi } from '@/lib/api';
+import { APIError } from '@/lib/api/client';
 import { invalidateDatabaseDataQueries } from '@/lib/metadata-save-cache';
 import { clearStoredSessionIdentity } from '@/lib/session/session-identity';
 import type {
@@ -21,6 +22,34 @@ export interface UseDatabaseSwitchReturn {
   handleCreateDatabase: () => void;
   handleConnectDatabase: () => Promise<void>;
   dialogProps: DatabaseSwitchDialogProps;
+}
+
+interface OperationBlockedDetail {
+  code?: string;
+  blocked_by?: Array<{
+    reason?: string;
+    usernames?: string[];
+  }>;
+}
+
+function extractActiveUsernames(error: unknown): string[] {
+  if (!(error instanceof APIError) || typeof error.body !== 'object' || error.body === null) {
+    return [];
+  }
+  const detail = (error.body as { detail?: unknown }).detail;
+  if (typeof detail !== 'object' || detail === null) {
+    return [];
+  }
+  const blocked = detail as OperationBlockedDetail;
+  if (blocked.code !== 'operation_blocked' || !Array.isArray(blocked.blocked_by)) {
+    return [];
+  }
+  const usernames = blocked.blocked_by
+    .filter((item) => item.reason === 'active_database_users' && Array.isArray(item.usernames))
+    .flatMap((item) => item.usernames ?? [])
+    .filter((name) => typeof name === 'string' && name.trim().length > 0)
+    .map((name) => name.trim());
+  return Array.from(new Set(usernames));
 }
 
 export function useDatabaseSwitch({
@@ -143,6 +172,16 @@ export function useDatabaseSwitch({
       );
       window.location.reload();
     } catch (error) {
+      if (databaseSwitchMode === 'connect') {
+        const activeUsernames = extractActiveUsernames(error);
+        if (activeUsernames.length > 0) {
+          const namesLabel = activeUsernames.join(', ');
+          const blockedMessage = `Cannot switch database while ${namesLabel} are active. Ask them to finish or retry when idle.`;
+          toast.error(blockedMessage);
+          setDatabaseSwitchError(blockedMessage);
+          return;
+        }
+      }
       const message =
         error instanceof Error
           ? error.message

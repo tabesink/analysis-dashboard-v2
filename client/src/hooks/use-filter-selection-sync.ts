@@ -7,7 +7,7 @@
  *   AND checked".
  * - Pruning happens immediately on dimension-filter change. The grid and
  *   rendered_event_ids are intentionally left alone -- the existing
- *   "Selection changed -- click Render" banner already signals the dirty state,
+ *   pending-render toast already signals the dirty state,
  *   and the next Render click cleanly refetches with the pruned selection.
  * - The Event-ID search box (event_id_query) is a find tool and never causes
  *   pruning. useEventCatalog excludes it from dimensionFilteredEventIds.

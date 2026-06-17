@@ -10,6 +10,7 @@ type CapturedSectionProps = {
   selectedEventIds: string[];
   emptyMessage: string;
   emptySelectionSubtitle: string;
+  colorProps?: Record<string, unknown>;
   onSelectedEventIdsChange: (selectedEventIds: string[]) => void;
 };
 
@@ -70,14 +71,29 @@ describe('ComparisonLoadDataSections', () => {
     );
 
     expect(capturedSections).toHaveLength(2);
-    expect(capturedSections[0]?.sectionTitle).toBe('Reference Load Data');
+    expect(capturedSections[0]?.sectionTitle).toBe('Load Data (Reference)');
     expect(capturedSections[0]?.emptySelectionSubtitle).toBe(
       'Select Reference events for comparison',
     );
-    expect(capturedSections[1]?.sectionTitle).toBe('Target Load Data');
+    expect(capturedSections[1]?.sectionTitle).toBe('Load Data (Target)');
     expect(capturedSections[1]?.emptySelectionSubtitle).toBe(
       'Select Target events for comparison',
     );
+  });
+
+  it('does not pass color swatch props so damage trees hide controls but keep reserved spacing', () => {
+    capturedSections.length = 0;
+    renderToStaticMarkup(
+      <ComparisonLoadDataSections
+        comparison={baseComparison}
+        events={events}
+        isLoading={false}
+        onUpdateComparison={() => {}}
+      />,
+    );
+
+    expect(capturedSections[0]?.colorProps).toBeUndefined();
+    expect(capturedSections[1]?.colorProps).toBeUndefined();
   });
 
   it('updates only reference selected event ids when reference section changes', () => {

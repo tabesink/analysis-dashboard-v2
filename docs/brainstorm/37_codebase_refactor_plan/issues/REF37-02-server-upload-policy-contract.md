@@ -39,16 +39,16 @@ Extract the server-side folder-upload lane rules into a pure policy contract and
 ## Acceptance Criteria
 
 - [ ] One behavior test is added and made green at a time.
-- [ ] Pure policy tests cover CSV-only batches.
-- [ ] Pure policy tests cover RSP-only batches.
-- [ ] Pure policy tests reject mixed CSV/RSP batches.
-- [ ] Pure policy tests cover optional `channel_map.yaml` and `channel_map.yml` companion files.
-- [ ] Unsupported file behavior matches the current public route contract and is documented in the test names.
-- [ ] The folder-upload route consumes the policy without changing endpoint URL or successful response shape.
-- [ ] `IMPLEMENTATION_MAP.md` is updated if task kind or phase names are adjusted.
-- [ ] `docs/tasks/REF37-02.md` records interfaces changed and tests added.
+- [x] Pure policy tests cover CSV-only batches.
+- [x] Pure policy tests cover RSP-only batches.
+- [x] Pure policy tests reject mixed CSV/RSP batches.
+- [x] Pure policy tests cover optional `channel_map.yaml` and `channel_map.yml` companion files.
+- [x] Unsupported file behavior matches the current public route contract and is documented in the test names.
+- [x] The folder-upload route consumes the policy without changing endpoint URL or successful response shape.
+- [x] `IMPLEMENTATION_MAP.md` is updated if task kind or phase names are adjusted.
+- [x] `docs/tasks/REF37-02.md` records interfaces changed and tests added.
 - [ ] GitNexus impact analysis is run before editing route or helper symbols.
-- [ ] Focused tests pass.
+- [x] Focused tests pass.
 
 ## Blocked By
 

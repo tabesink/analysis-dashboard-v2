@@ -19,7 +19,9 @@ import {
 import type {
   UploadResponse,
   UploadTaskStartResponse,
+  UploadTaskCancelResponse,
   UploadTaskEvent,
+  UploadTaskErrorDetails,
   DatasetInfo,
   DatasetListResponse,
   UploadMetadata,
@@ -27,6 +29,8 @@ import type {
   DeleteEventsResponse,
   DeleteProgramVersionScopeRequest,
   DeleteProgramVersionScopeResponse,
+  FailedUploadCleanupResponse,
+  UploadTaskDiscoveryResponse,
 } from '@/types/upload';
 
 /**
@@ -56,6 +60,7 @@ const OPTIONAL_METADATA_FIELDS = [
 ] as const;
 
 const DATA_UPLOAD_TIMEOUT_MS = 3_600_000; // 60 minutes for large local-network uploads
+const DELETE_OPERATION_TIMEOUT_MS = 300_000; // 5 minutes for large scope deletes
 const POLL_MS = 2000;
 const RETRYABLE_POLL_STATUSES = new Set([502, 503, 504]);
 const TASK_POLL_RETRY_WINDOW_MS = DATA_UPLOAD_TIMEOUT_MS;
@@ -97,6 +102,16 @@ function classifyUploadTaskPollError(error: unknown): RetryablePollError {
     retryable: false,
     message: error instanceof Error ? error.message : 'Failed to poll upload task status',
   };
+}
+
+function buildFailedUploadMessage(event: UploadTaskEvent): string {
+  const details = event.error_details as UploadTaskErrorDetails | undefined;
+  const base = event.error || 'Upload failed';
+  const guidance = typeof details?.retry_guidance === 'string' ? details.retry_guidance : null;
+  if (!guidance) {
+    return base;
+  }
+  return `${base} ${guidance}`;
 }
 
 export const uploadApi = {
@@ -175,11 +190,11 @@ export const uploadApi = {
       fetchStatus: async () => {
         const event = await uploadApi.getUploadTaskStatus(taskId);
         if (event.status === 'failed') {
-          throw new Error(event.error || 'Upload failed');
+          throw new Error(buildFailedUploadMessage(event));
         }
         return event;
       },
-      isTerminal: (event) => event.status === 'completed',
+      isTerminal: (event) => event.status === 'completed' || event.status === 'cancelled',
       onUpdate,
       onConnectionStateChange,
       pollMs: POLL_MS,
@@ -202,16 +217,23 @@ export const uploadApi = {
    * Matches: DELETE /api/v1/upload/events/{event_id}
    */
   deleteDataset: (eventId: string): Promise<DeleteEventResponse> =>
-    del<DeleteEventResponse>(`/api/v1/upload/events/${eventId}`),
+    del<DeleteEventResponse>(
+      `/api/v1/upload/events/${eventId}`,
+      DELETE_OPERATION_TIMEOUT_MS,
+    ),
 
   /**
    * Bulk delete datasets
    * Matches: POST /api/v1/upload/events/delete (using POST for body support)
    */
   deleteDatasets: (eventIds: string[]): Promise<DeleteEventsResponse> =>
-    post<DeleteEventsResponse>('/api/v1/upload/events/delete', {
-      event_ids: eventIds,
-    }),
+    post<DeleteEventsResponse>(
+      '/api/v1/upload/events/delete',
+      {
+        event_ids: eventIds,
+      },
+      DELETE_OPERATION_TIMEOUT_MS,
+    ),
 
   /**
    * Hard-delete a full program or program/version scope.
@@ -222,5 +244,24 @@ export const uploadApi = {
     post<DeleteProgramVersionScopeResponse>(
       '/api/v1/upload/program-version/delete',
       payload,
+      DELETE_OPERATION_TIMEOUT_MS,
     ),
+
+  cleanupFailedFolderUploadTask: (
+    taskId: string,
+  ): Promise<FailedUploadCleanupResponse> =>
+    post<FailedUploadCleanupResponse>(`/api/v1/upload/folder/task/${taskId}/cleanup`, {}),
+
+  cancelUploadTask: (
+    taskId: string,
+  ): Promise<UploadTaskCancelResponse> =>
+    post<UploadTaskCancelResponse>(`/api/v1/upload/tasks/${taskId}/cancel`, {}),
+
+  cancelFolderUploadTask: (
+    taskId: string,
+  ): Promise<UploadTaskCancelResponse> =>
+    post<UploadTaskCancelResponse>(`/api/v1/upload/folder/task/${taskId}/cancel`, {}),
+
+  getActiveUploadTasks: (): Promise<UploadTaskDiscoveryResponse> =>
+    get<UploadTaskDiscoveryResponse>('/api/v1/upload/tasks/active'),
 };

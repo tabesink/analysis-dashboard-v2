@@ -5,6 +5,7 @@ import json
 import numpy as np
 import pandas as pd
 from fastapi.testclient import TestClient
+from server.services.operation_admission import exclusive_database_operation
 
 from tests.server.routers.conftest import login
 
@@ -772,6 +773,131 @@ def test_damage_backfill_reuses_active_task_on_repeated_calls(auth_client: TestC
     assert second_body["reused_existing_task"] is True
 
 
+def _seed_damage_scope_for_authz(
+    auth_client: TestClient,
+    *,
+    owner_id: str,
+    program_id: str,
+    version: str,
+    event_id: str,
+) -> None:
+    db = auth_client.app.state.db
+    db.insert_event(
+        event_id=event_id,
+        program_id=program_id,
+        version=version,
+        uploaded_by_user_id=owner_id,
+        status="Approved",
+    )
+    db.upsert_event_derived_data(
+        event_id=event_id,
+        ingestion_run_id=1,
+        derived_artifact_id=1,
+        channel_map_snapshot_id=1,
+        measurements_status="current",
+        lttb_status="current",
+        measurements_data_kind="raw",
+        lttb_data_kind="lttb",
+    )
+    schedule_id = db.upsert_durability_schedule_artifact(
+        program_id=program_id,
+        version=version,
+        source_filename=f"{program_id}.sch",
+        artifact_uri=f"schedules/{program_id}.sch",
+        schedule_sha256=f"sha-{program_id}",
+        parse_preview_json=json.dumps(
+            {
+                "multiplier": 1.0,
+                "event_rows": [
+                    {
+                        "event_id": event_id,
+                        "pattern": "pattern_a",
+                        "repeats": 1,
+                        "weight": 1.0,
+                        "rsp_event_name": "Event A",
+                    }
+                ],
+            }
+        ),
+        owner_user_id=owner_id,
+    )
+    db.set_active_durability_schedule(program_id, version, schedule_id)
+
+
+def test_damage_backfill_forbids_unrelated_writer_from_reusing_active_task(
+    auth_client: TestClient,
+) -> None:
+    owner = auth_client.post(
+        "/api/v1/auth/register",
+        json={"username": "damage_scope_owner", "password": "damagepassword123"},
+    )
+    assert owner.status_code == 201, owner.text
+    owner_id = owner.json()["id"]
+    auth_client.app.state.identity_db.update_user_role_and_write(owner_id, can_write=True)
+
+    other = auth_client.post(
+        "/api/v1/auth/register",
+        json={"username": "damage_scope_other", "password": "damagepassword123"},
+    )
+    assert other.status_code == 201, other.text
+    other_id = other.json()["id"]
+    auth_client.app.state.identity_db.update_user_role_and_write(other_id, can_write=True)
+
+    _seed_damage_scope_for_authz(
+        auth_client,
+        owner_id=owner_id,
+        program_id="P-DAMAGE-AUTHZ",
+        version="V1",
+        event_id="event-damage-authz",
+    )
+
+    login(auth_client, "damage_scope_owner", "damagepassword123")
+    first = auth_client.post(
+        "/api/v1/damage/backfill",
+        json={"program_id": "P-DAMAGE-AUTHZ", "version": "V1"},
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["damage_task_id"]
+
+    login(auth_client, "damage_scope_other", "damagepassword123")
+    blocked = auth_client.post(
+        "/api/v1/damage/backfill",
+        json={"program_id": "P-DAMAGE-AUTHZ", "version": "V1"},
+    )
+    assert blocked.status_code == 403, blocked.text
+    assert blocked.json()["detail"] == "You can only edit uploaded data you own"
+
+
+def test_damage_calculate_allows_admin_to_start_for_other_owner_scope(
+    auth_client: TestClient,
+) -> None:
+    owner = auth_client.post(
+        "/api/v1/auth/register",
+        json={"username": "damage_scope_owner_admin", "password": "damagepassword123"},
+    )
+    assert owner.status_code == 201, owner.text
+    owner_id = owner.json()["id"]
+    auth_client.app.state.identity_db.update_user_role_and_write(owner_id, can_write=True)
+
+    _seed_damage_scope_for_authz(
+        auth_client,
+        owner_id=owner_id,
+        program_id="P-DAMAGE-ADMIN",
+        version="V1",
+        event_id="event-damage-admin",
+    )
+
+    login(auth_client, "admin", "test-admin-secret")
+    response = auth_client.post(
+        "/api/v1/damage/calculate",
+        json={"program_id": "P-DAMAGE-ADMIN", "version": "V1"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["damage_task_id"]
+    assert body["task_kind"] == "damage_calculation"
+
+
 def test_damage_backfill_requires_write_access(auth_client: TestClient) -> None:
     register = auth_client.post(
         "/api/v1/auth/register",
@@ -807,3 +933,72 @@ def test_damage_calculate_requires_write_access(auth_client: TestClient) -> None
     )
 
     assert response.status_code == 403, response.text
+
+
+def test_damage_calculate_is_blocked_by_exclusive_database_operation(
+    auth_client: TestClient,
+) -> None:
+    register = auth_client.post(
+        "/api/v1/auth/register",
+        json={"username": "damage_blocked_exclusive", "password": "damagepassword123"},
+    )
+    assert register.status_code == 201, register.text
+    owner_id = register.json()["id"]
+    db = auth_client.app.state.db
+    auth_client.app.state.identity_db.update_user_role_and_write(owner_id, can_write=True)
+    login(auth_client, "damage_blocked_exclusive", "damagepassword123")
+
+    db.insert_event(
+        event_id="event-damage-blocked-exclusive",
+        program_id="P-DAMAGE-BLOCKED-EXCLUSIVE",
+        version="V1",
+        uploaded_by_user_id=owner_id,
+        status="Approved",
+    )
+    db.upsert_event_derived_data(
+        event_id="event-damage-blocked-exclusive",
+        ingestion_run_id=1,
+        derived_artifact_id=1,
+        channel_map_snapshot_id=1,
+        measurements_status="current",
+        lttb_status="current",
+        measurements_data_kind="raw",
+        lttb_data_kind="lttb",
+    )
+    schedule_id = db.upsert_durability_schedule_artifact(
+        program_id="P-DAMAGE-BLOCKED-EXCLUSIVE",
+        version="V1",
+        source_filename="blocked-exclusive.sch",
+        artifact_uri="schedules/blocked-exclusive.sch",
+        schedule_sha256="sha-blocked-exclusive",
+        parse_preview_json=json.dumps(
+            {
+                "multiplier": 1.0,
+                "event_rows": [
+                    {
+                        "event_id": "event-damage-blocked-exclusive",
+                        "pattern": "pattern_a",
+                        "repeats": 1,
+                        "weight": 1.0,
+                        "rsp_event_name": "Event A",
+                    }
+                ],
+            }
+        ),
+        owner_user_id=owner_id,
+    )
+    db.set_active_durability_schedule("P-DAMAGE-BLOCKED-EXCLUSIVE", "V1", schedule_id)
+
+    with exclusive_database_operation("database_switch"):
+        response = auth_client.post(
+            "/api/v1/damage/calculate",
+            json={"program_id": "P-DAMAGE-BLOCKED-EXCLUSIVE", "version": "V1"},
+        )
+
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["code"] == "operation_blocked"
+    assert detail["operation"] == "damage_calculation"
+    assert any(
+        item["reason"] == "active_exclusive_database_operation" for item in detail["blocked_by"]
+    )

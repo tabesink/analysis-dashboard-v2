@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import threading
+import time
+
 from fastapi.testclient import TestClient
 
 from .conftest import login
@@ -46,6 +49,55 @@ def test_login_sets_http_only_cookie(auth_client: TestClient) -> None:
     assert "HttpOnly" in set_cookie
     assert "SameSite=lax" in set_cookie
     assert "Max-Age=86400" in set_cookie
+
+
+def test_login_succeeds_when_dashboard_audit_write_is_unavailable(
+    auth_client: TestClient,
+) -> None:
+    def _skip_audit(**_: object) -> bool:
+        return False
+
+    auth_client.app.state.db.try_log_audit = _skip_audit
+
+    response = auth_client.post(
+        "/api/v1/auth/login",
+        json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["username"] == ADMIN_USERNAME
+
+
+def test_login_remains_responsive_when_dashboard_audit_lock_is_contended(
+    auth_client: TestClient,
+) -> None:
+    lock = auth_client.app.state.db._db_lock
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+
+    def hold_db_lock() -> None:
+        lock.acquire()
+        try:
+            lock_held.set()
+            release_lock.wait(timeout=2.0)
+        finally:
+            lock.release()
+
+    holder = threading.Thread(target=hold_db_lock, daemon=True)
+    holder.start()
+    assert lock_held.wait(timeout=1.0), "failed to acquire dashboard DB lock in test"
+
+    started = time.perf_counter()
+    response = auth_client.post(
+        "/api/v1/auth/login",
+        json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
+    )
+    elapsed_seconds = time.perf_counter() - started
+    release_lock.set()
+    holder.join(timeout=1.0)
+
+    assert response.status_code == 200, response.text
+    assert elapsed_seconds < 0.75
 
 
 def test_register_creates_read_only_user_and_logs_in(auth_client: TestClient) -> None:
@@ -181,3 +233,28 @@ def test_logout_invalidates_all_outstanding_tokens(auth_client: TestClient) -> N
     auth_client.cookies.set("rsp_auth", second_token)
     latest_me = auth_client.get("/api/v1/auth/me")
     assert latest_me.status_code == 401
+
+
+def test_presence_heartbeat_requires_authentication(auth_client: TestClient) -> None:
+    response = auth_client.post("/api/v1/auth/presence/heartbeat", json={})
+    assert response.status_code == 401
+
+
+def test_presence_heartbeat_records_user_identity_and_active_database(
+    auth_client: TestClient,
+) -> None:
+    login(auth_client, ADMIN_USERNAME, ADMIN_PASSWORD)
+
+    response = auth_client.post(
+        "/api/v1/auth/presence/heartbeat",
+        json={"active_area": "/database"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["active_database"] == auth_client.app.state.db.db_path.name
+    assert body["expires_in_seconds"] > 0
+    assert body["record"]["user_id"]
+    assert body["record"]["username"] == ADMIN_USERNAME
+    assert body["record"]["active_database"] == auth_client.app.state.db.db_path.name
+    assert body["record"]["active_area"] == "/database"
+    assert body["record"]["last_seen_at"]

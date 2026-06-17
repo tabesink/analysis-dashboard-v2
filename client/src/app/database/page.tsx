@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -10,6 +10,7 @@ import {
   Columns,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { showShortInfoToast } from '@/lib/feedback/short-info-toast';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -20,6 +21,7 @@ import {
 } from '@/components/ui/popover';
 import { useUploadOperation } from '@/features/database/upload';
 import { damageApi, dashboardApi } from '@/lib/api';
+import { uploadApi } from '@/lib/api/upload';
 import { useUploadedDatasets, useScopeDeleteOperation } from '@/hooks';
 import { useEventCatalog } from '@/hooks/use-event-catalog';
 import { ScopeDeleteOperationModal } from '@/features/database-scope-delete/ScopeDeleteOperationModal';
@@ -59,8 +61,11 @@ import {
 import type { DamageInspectResponse, EventMetadata, FilterOptions } from '@/types/api';
 import type { DatasetInfo } from '@/types/upload';
 import { selectCanWrite, useAuthStore } from '@/stores/auth-store';
-import { isDamageCalculationActive } from '@/stores/damage-calculation-store';
-import { useUIStore } from '@/stores/ui-store';
+import { trackChannelReprocessTask } from '@/stores/channel-reprocess-store';
+import {
+  isDamageCalculationActive,
+  trackDamageCalculationTask,
+} from '@/stores/damage-calculation-store';
 
 type FilterState = Record<string, string>;
 
@@ -90,17 +95,18 @@ export default function DatabasePage() {
   const authUser = useAuthStore((s) => s.user);
   const isAdmin = authUser?.role === 'admin';
   const canWrite = useAuthStore(selectCanWrite);
-  const folderUploadInProgress = useUIStore((s) => s.folderUploadInProgress);
+  const recoveryBootstrapRef = useRef(false);
+  const [recoverableFolderTaskId, setRecoverableFolderTaskId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (authStatus === 'unauthenticated' && !folderUploadInProgress) {
+    if (authStatus === 'unauthenticated') {
       router.replace('/login');
       return;
     }
     if (authStatus === 'authenticated' && !canWrite) {
       router.replace('/dashboard');
     }
-  }, [authStatus, canWrite, folderUploadInProgress, router]);
+  }, [authStatus, canWrite, router]);
   
   // Fetch filter options from server
   const [filterOptions, setFilterOptions] =
@@ -420,7 +426,7 @@ export default function DatabasePage() {
     });
   }, []);
 
-  const { startUpload, modalProps: uploadModalProps, isBusy: isUploadBusy } = useUploadOperation({
+  const { startUpload, recoverTask, modalProps: uploadModalProps, isBusy: isUploadBusy } = useUploadOperation({
     onComplete: async () => {
       setSelectedFiles([]);
       clearFilters();
@@ -433,6 +439,58 @@ export default function DatabasePage() {
     },
   });
 
+  useEffect(() => {
+    if (authStatus !== 'authenticated' || !canWrite || recoveryBootstrapRef.current) {
+      return;
+    }
+    recoveryBootstrapRef.current = true;
+    let cancelled = false;
+    void uploadApi
+      .getActiveUploadTasks()
+      .then((response) => {
+        if (cancelled) return;
+        const allTasks = [
+          ...(response.active_tasks ?? []),
+          ...(response.recent_terminal_tasks ?? []),
+        ];
+        const recoverableFolderTask = allTasks.find((task) => task.task_kind === 'folder_upload');
+        if (recoverableFolderTask?.task_id) {
+          setRecoverableFolderTaskId(recoverableFolderTask.task_id);
+        }
+
+        (response.active_tasks ?? []).forEach((task) => {
+          if (!task.task_id || !task.scope) return;
+          const programId = String(task.scope.program_id ?? '').trim();
+          const version = String(task.scope.version ?? '').trim();
+          if (!programId || !version) return;
+          const scope = { programId, version };
+          if (task.task_kind === 'channel_reprocess') {
+            trackChannelReprocessTask({
+              scope,
+              taskId: task.task_id,
+              queryClient,
+              reopenExisting: true,
+            });
+          } else if (task.task_kind === 'damage_calculation') {
+            trackDamageCalculationTask({
+              scope,
+              taskId: task.task_id,
+              queryClient,
+              reopenExisting: true,
+              openModal: true,
+              origin: 'manual',
+            });
+          }
+        });
+      })
+      .catch(() => {
+        // Recovery is best-effort and should not block page load.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authStatus, canWrite, queryClient]);
+
   const handleUpload = async () => {
     if (selectedFiles.length === 0) return;
 
@@ -444,7 +502,7 @@ export default function DatabasePage() {
       selectionSummary: uploadSummary,
       notifier: {
         error: toast.error,
-        info: toast.info,
+        info: showShortInfoToast,
       },
     });
     if (!canStartUpload || !metadataResult.ok) return;
@@ -743,12 +801,31 @@ export default function DatabasePage() {
   const totalRowWidth = programIdWidth + dataColumnsTotalWidth;
 
   if (authStatus === 'loading' || authStatus === 'idle') {
-    return <div className="flex-1 p-4">Loading...</div>;
+    return <div className="flex-1 p-4 text-sm text-muted-foreground">Loading...</div>;
   }
 
   return (
     <div className="flex-1 p-4 min-h-[calc(100vh-3.5rem)]">
       <DatabaseChannelReprocessBanners />
+      {recoverableFolderTaskId ? (
+        <div className="mb-3 rounded-md border bg-muted/50 p-3 text-xs flex items-center justify-between gap-3">
+          <span className="text-muted-foreground">
+            Recovered an upload operation from server state.
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => {
+              const taskId = recoverableFolderTaskId;
+              if (!taskId) return;
+              setRecoverableFolderTaskId(null);
+              void recoverTask(taskId);
+            }}
+          >
+            View progress
+          </Button>
+        </div>
+      ) : null}
       <div className="flex gap-0 h-[calc(100vh-7rem)]">
 
         {/* Side Panel */}
@@ -911,7 +988,7 @@ export default function DatabasePage() {
               <CardContent className="flex-1 min-h-0 overflow-auto p-0">
                 {programVersions.length > 0 ? (
                   <div style={{ minWidth: totalRowWidth }}>
-                    <div className="sticky top-0 z-10 flex items-center py-2 px-3 border-b bg-card text-xs font-semibold text-foreground/70">
+                    <div className="sticky top-0 z-10 flex items-center py-2 px-3 border-b bg-card text-xs font-semibold text-muted-foreground">
                       <div
                         className="relative flex items-center gap-2 shrink-0 pl-1"
                         style={{ width: programIdWidth }}
@@ -977,6 +1054,7 @@ export default function DatabasePage() {
             ) : (
               <DamageTableView
                 title="Damage Table"
+                showHeader={false}
                 events={allDamageEvents}
                 damageRowsByEventId={damageRowsByEventId}
                 channelMetadata={damageChannelMetadata}

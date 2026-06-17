@@ -17,6 +17,8 @@ from server.models.damage import (
     DamageInspectResponse,
 )
 from server.services.damage_inspect import build_damage_inspect_response
+from server.services.operation_admission import OperationAdmissionError
+from server.services.dashboard_orchestration import require_uploaded_data_edit_permission
 from server.services.post_upload_precompute import (
     decide_after_inspect_damage_access,
     inspect_precompute_decision_to_response,
@@ -45,13 +47,29 @@ async def backfill_missing_damage(
     damage_service: DamageCalculationTaskServiceDep,
     user: WriteUserDep,
 ) -> DamageCalculateResponse:
-    decision = decide_after_inspect_damage_access(
-        damage_service.db,
-        program_id=request.program_id,
-        version=request.version,
-        user_id=user["id"],
-        damage_service=damage_service,
-    )
+    try:
+        require_uploaded_data_edit_permission(
+            store=damage_service.db,
+            program_id=request.program_id,
+            version=request.version,
+            user_id=user["id"],
+            role=user["role"],
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    try:
+        decision = decide_after_inspect_damage_access(
+            damage_service.db,
+            program_id=request.program_id,
+            version=request.version,
+            user_id=user["id"],
+            damage_service=damage_service,
+        )
+    except OperationAdmissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.to_http_detail(),
+        ) from exc
     payload = inspect_precompute_decision_to_response(decision)
     if "damage_prerequisite_report" in payload:
         from server.models.damage import DamageFailureReport
@@ -74,6 +92,16 @@ async def start_damage_calculation(
     damage_service: DamageCalculationTaskServiceDep,
     user: WriteUserDep,
 ) -> DamageCalculateResponse:
+    try:
+        require_uploaded_data_edit_permission(
+            store=damage_service.db,
+            program_id=request.program_id,
+            version=request.version,
+            user_id=user["id"],
+            role=user["role"],
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     active_schedule = damage_service.db.get_active_durability_schedule(
         request.program_id,
         request.version,
@@ -84,12 +112,18 @@ async def start_damage_calculation(
             detail="No active durability schedule is attached for this program/version",
         )
 
-    result = damage_service.maybe_start_after_schedule_change(
-        program_id=request.program_id,
-        version=request.version,
-        user_id=user["id"],
-        active_schedule=active_schedule,
-    )
+    try:
+        result = damage_service.maybe_start_after_schedule_change(
+            program_id=request.program_id,
+            version=request.version,
+            user_id=user["id"],
+            active_schedule=active_schedule,
+        )
+    except OperationAdmissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=exc.to_http_detail(),
+        ) from exc
     if "damage_prerequisite_report" in result:
         from server.models.damage import DamageFailureReport
 

@@ -87,6 +87,8 @@ interface ProgramGroup {
 
 const MAX_EVENT_LABEL_CHARS = 40;
 const PENDING_CHANNEL_MAP_EVENT_PREFIX = '__pending_channel_map__::';
+/** Fixed trailing slot so rows keep height when color controls are hidden. */
+const TREE_COLOR_CONTROL_SLOT_CLASS = 'size-3 shrink-0 flex items-center justify-center';
 
 // =============================================================================
 // IndeterminateCheckbox
@@ -389,8 +391,12 @@ export function HierarchicalEventTree({
                     {program.programId}
                   </span>
 
-                  {showColorSwatches && onProgramColorReset && (
-                    <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <div
+                    className={TREE_COLOR_CONTROL_SLOT_CLASS}
+                    onClick={(e) => e.stopPropagation()}
+                    aria-hidden={!(showColorSwatches && onProgramColorReset)}
+                  >
+                    {showColorSwatches && onProgramColorReset ? (
                       <Button
                         type="button"
                         variant="ghost"
@@ -399,14 +405,14 @@ export function HierarchicalEventTree({
                           e.stopPropagation();
                           onProgramColorReset(program.programId);
                         }}
-                        className="h-4 w-4 flex items-center justify-center text-muted-foreground hover:text-foreground"
+                        className="h-3 w-3 flex items-center justify-center text-muted-foreground hover:text-foreground"
                         title="Reset program and all version colors to defaults"
                         aria-label={`Reset all version colors for program ${program.programId}`}
                       >
-                        <RefreshCw className="h-3 w-3" />
+                        <RefreshCw className="size-2.5" />
                       </Button>
-                    </div>
-                  )}
+                    ) : null}
+                  </div>
 
                 </div>
 
@@ -428,7 +434,7 @@ export function HierarchicalEventTree({
                           {/* Version row */}
                           <div
                             className={cn(
-                              'flex items-center gap-1 py-1 px-1 rounded-md hover:bg-muted/50 transition-colors',
+                              'flex items-center gap-1 py-1.5 px-1 rounded-md hover:bg-muted/50 transition-colors',
                               isVersionDisabled && 'opacity-60',
                             )}
                           >
@@ -493,17 +499,22 @@ export function HierarchicalEventTree({
                               })()}
                             </div>
 
-                            {showColorSwatches && getVersionColor && onVersionColorChange && (
-                              <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                            <div
+                              className={TREE_COLOR_CONTROL_SLOT_CLASS}
+                              onClick={(e) => e.stopPropagation()}
+                              aria-hidden={
+                                !(showColorSwatches && getVersionColor && onVersionColorChange)
+                              }
+                            >
+                              {showColorSwatches && getVersionColor && onVersionColorChange ? (
                                 <ColorPicker
                                   value={getVersionColor(program.programId, vg.version)}
                                   onChange={(color) =>
                                     onVersionColorChange(program.programId, vg.version, color)
                                   }
-                                  className="h-3.5 w-3.5"
                                 />
-                              </div>
-                            )}
+                              ) : null}
+                            </div>
 
                           </div>
 

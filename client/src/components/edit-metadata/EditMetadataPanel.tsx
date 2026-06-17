@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -10,7 +10,11 @@ import {
   Save,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { MetadataDialogHeader } from '@/components/edit-metadata/MetadataDialogHeader';
+import {
+  DialogCardFooter,
+  DialogContentCard,
+} from '@/components/shared/dialog-layout';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import {
@@ -24,6 +28,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useFilterOptions } from '@/hooks/use-filter-options';
 import { dashboardApi } from '@/lib/api';
 import { invalidateQueriesAfterMetadataSave } from '@/lib/metadata-save-cache';
+import { cn } from '@/lib/utils';
 import {
   EXCLUDED_METADATA_COLUMNS,
   isStatusField,
@@ -50,6 +55,8 @@ export interface EditMetadataPanelScope {
 export interface EditMetadataPanelProps {
   scope: EditMetadataPanelScope;
   canWrite?: boolean;
+  scopeAlert?: ReactNode;
+  statusDraftValue?: string | null;
   onSelectionMetadataChange?: (metadata: SelectionMetadata | null) => void;
   onActivityChange?: (activity: { isPrefillLoading: boolean; isSaving: boolean }) => void;
   onDirtyChange?: (isDirty: boolean) => void;
@@ -60,6 +67,8 @@ export interface EditMetadataPanelProps {
 export function EditMetadataPanel({
   scope,
   canWrite = true,
+  scopeAlert,
+  statusDraftValue = null,
   onSelectionMetadataChange,
   onActivityChange,
   onDirtyChange,
@@ -450,6 +459,10 @@ export function EditMetadataPanel({
 
   const fieldBlockClass = 'rounded-md p-2 bg-muted/50 h-full';
   const fieldRowClass = 'flex items-center justify-between gap-3';
+  const metadataFieldLabelClassName = 'text-sm leading-none text-foreground';
+  const metadataSelectTriggerClassName = 'h-8 w-44 shrink-0 text-xs';
+  const metadataSelectContentClassName = 'max-h-64 text-xs';
+  const metadataSelectItemClassName = 'text-sm';
 
   const renderField = ([displayName, config]: [
     string,
@@ -460,28 +473,28 @@ export function EditMetadataPanel({
     return (
       <div key={displayName} className={fieldBlockClass}>
         <div className={fieldRowClass}>
-          <p className="min-w-0 shrink text-sm font-medium">{displayName}</p>
+          <p className={cn('min-w-0 shrink', metadataFieldLabelClassName)}>{displayName}</p>
           <Select
             value={draftValues[displayName] ?? ''}
             onValueChange={(value) => setValueForField(displayName, value)}
             disabled={!canWrite || (!isAdmin && statusField) || !programId || !version || isSaving}
           >
-            <SelectTrigger className="h-8 w-44 shrink-0 text-xs">
+            <SelectTrigger className={metadataSelectTriggerClassName}>
               <SelectValue
                 placeholder={
                   hasMixedValues ? 'Mixed values (select to override)' : getFieldSelectLabel(displayName)
                 }
               />
             </SelectTrigger>
-            <SelectContent position="popper" className="max-h-64">
+            <SelectContent position="popper" className={metadataSelectContentClassName}>
               {config.values.length > 0 ? (
                 config.values.map((optionValue) => (
-                  <SelectItem key={optionValue} value={optionValue}>
+                  <SelectItem key={optionValue} value={optionValue} className={metadataSelectItemClassName}>
                     {optionValue}
                   </SelectItem>
                 ))
               ) : (
-                <SelectItem value="__none__" disabled>
+                <SelectItem value="__none__" disabled className={metadataSelectItemClassName}>
                   No predefined options
                 </SelectItem>
               )}
@@ -501,9 +514,9 @@ export function EditMetadataPanel({
     <div key={displayName} className={fieldBlockClass}>
       <div className={fieldRowClass}>
         <div className="min-w-0">
-          <p className="text-sm font-medium">{displayName}</p>
+          <p className={metadataFieldLabelClassName}>{displayName}</p>
           {!isAdmin && (
-            <p className="text-xs text-amber-600 dark:text-amber-400">
+            <p className="text-xs text-muted-foreground">
               Admin access is required to edit this field.
             </p>
           )}
@@ -513,7 +526,7 @@ export function EditMetadataPanel({
           onValueChange={(value) => setValueForField(displayName, value)}
           disabled={!canWrite || !isAdmin || !programId || !version || isSaving}
         >
-          <SelectTrigger className="h-8 w-44 shrink-0 text-xs">
+          <SelectTrigger className={metadataSelectTriggerClassName}>
             <SelectValue
               placeholder={
                 draftValues[displayName]
@@ -522,9 +535,9 @@ export function EditMetadataPanel({
               }
             />
           </SelectTrigger>
-          <SelectContent position="popper" className="max-h-64">
+          <SelectContent position="popper" className={metadataSelectContentClassName}>
             {config.values.map((optionValue) => (
-              <SelectItem key={optionValue} value={optionValue}>
+              <SelectItem key={optionValue} value={optionValue} className={metadataSelectItemClassName}>
                 {optionValue}
               </SelectItem>
             ))}
@@ -537,7 +550,7 @@ export function EditMetadataPanel({
   const renderWeightField = (field: (typeof RAW_WEIGHT_FIELDS)[number]) => (
     <div key={field.key} className={fieldBlockClass}>
       <div className={fieldRowClass}>
-        <p className="min-w-0 shrink text-sm font-medium">{field.label}</p>
+        <p className={cn('min-w-0 shrink', metadataFieldLabelClassName)}>{field.label}</p>
         <Input
           value={draftValues[field.label] ?? ''}
           onChange={(event) => setWeightFieldValue(field.label, event.target.value)}
@@ -553,7 +566,7 @@ export function EditMetadataPanel({
   const renderPhasesField = () => (
     <div key="applicable-phases" className={fieldBlockClass}>
       <div className={fieldRowClass}>
-        <p className="shrink-0 text-sm font-medium">Applicable Phases</p>
+        <p className={cn('shrink-0', metadataFieldLabelClassName)}>Applicable Phases</p>
         <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
           {PHASE_FIELDS.map((phaseField) => (
             <label key={phaseField.key} className="flex items-center gap-1.5 text-xs">
@@ -627,29 +640,20 @@ export function EditMetadataPanel({
   };
 
   return (
-    <Card
-      className="flex-1 min-h-0 flex flex-col gap-0 overflow-hidden rounded-lg border bg-card shadow-subtle py-0"
+    <DialogContentCard
+      className="min-h-0 flex-1"
+      bodyClassName="flex min-h-0 flex-1 flex-col"
       data-testid="edit-metadata-panel"
-    >
-      <CardContent className="flex flex-1 min-h-0 flex-col p-4">
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {!canWrite ? (
-            <p
-              className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300"
-              data-testid="edit-metadata-read-only-notice"
-            >
-              Read-only access — contact admin
-            </p>
-          ) : null}
-          {!serverOptions ? (
-            <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-              No metadata fields available.
-            </div>
-          ) : (
-            <div>{renderMetadataFields()}</div>
-          )}
-        </div>
-        <div className="mt-4 flex shrink-0 items-center justify-end gap-2 border-t pt-4">
+      contextBar={
+        <MetadataDialogHeader
+          programId={programId}
+          version={version}
+          statusDraftValue={statusDraftValue}
+        />
+      }
+      alertBar={scopeAlert}
+      footer={
+        <DialogCardFooter>
           <Button
             type="button"
             variant="outline"
@@ -677,8 +681,26 @@ export function EditMetadataPanel({
               </>
             )}
           </Button>
-        </div>
-      </CardContent>
-    </Card>
+        </DialogCardFooter>
+      }
+    >
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {!canWrite ? (
+          <p
+            className="mb-4 rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground"
+            data-testid="edit-metadata-read-only-notice"
+          >
+            Read-only access — contact admin
+          </p>
+        ) : null}
+        {!serverOptions ? (
+          <div className="flex items-center justify-center py-12 text-xs text-muted-foreground">
+            No metadata fields available.
+          </div>
+        ) : (
+          <div>{renderMetadataFields()}</div>
+        )}
+      </div>
+    </DialogContentCard>
   );
 }

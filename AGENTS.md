@@ -84,6 +84,28 @@ For each completed issue, add `docs/tasks/{task-id}.md` with:
 - Domain docs: see `docs/agents/domain.md`.
 - If a skill asks for issue tracker, label, or domain-doc context, read the referenced `docs/agents/*.md` file first.
 
+## TDD Best Practices
+
+Use TDD for behavior changes, bug fixes, and lifecycle/security hardening unless the user explicitly asks otherwise.
+
+- Test behavior through public interfaces: server routes, service boundaries used by routes, client hooks/API helpers, or rendered UI behavior.
+- Prefer integration-style tests that describe what the system does for users/operators, not private methods or implementation shape.
+- Use tracer bullets: write one failing behavior test, implement the smallest change to pass, then repeat.
+- Do not use horizontal slices. Do not write all tests first and then all implementation.
+- Refactor only while green. Keep each refactor small and rerun focused tests after it.
+- Tests should survive internal refactors. If renaming or moving private code breaks a test while behavior is unchanged, the test is too coupled.
+- Mock at system boundaries only when needed. Avoid mocking internal collaborators just to make implementation details observable.
+- Focus test coverage on critical paths, ownership/security rules, persistence semantics, and risky cross-layer behavior.
+
+Per-cycle checklist:
+
+1. The test names one observable behavior.
+2. The test uses the public interface that owns that behavior.
+3. The test fails for the expected reason before implementation.
+4. The implementation is minimal and avoids speculative future behavior.
+5. The focused test passes before adding the next behavior.
+6. Any cleanup/refactor happens after green.
+
 ## GitNexus Code Intelligence
 
 Use GitNexus when exploring unfamiliar flows, tracing behavior, editing symbols with callers, or planning multi-file changes. Follow the managed GitNexus block at the bottom of this file for the current indexed repo and required tool sequence.
@@ -176,7 +198,7 @@ Enforce these when writing or reviewing code:
 - Match existing style.
 - Remove only dead code your change creates.
 - Turn requests into verifiable goals and tests.
-- Prefer TDD for behavior changes: one failing behavior test, minimal implementation, repeat.
+- Follow the TDD best practices above for behavior changes: one failing public-interface behavior test, minimal implementation, repeat.
 - Before finishing, run focused tests/lints and GitNexus `detect_changes()` when code symbols changed.
 
 <!-- gitnexus:start -->

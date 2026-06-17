@@ -16,9 +16,9 @@ import type {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
-  Card,
-  CardContent,
-} from '@/components/ui/card';
+  DialogCardFooter,
+  DialogContentCard,
+} from '@/components/shared/dialog-layout';
 import {
   Dialog,
   DialogContent,
@@ -103,7 +103,7 @@ function formatDate(value: string | null): string {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  return date.toLocaleDateString();
 }
 
 function getErrorMessage(err: unknown, fallback: string): string {
@@ -160,9 +160,9 @@ export function UserManagementSettingsPanel() {
 
   if (!isAdmin) {
     return (
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--secondary)]/60 p-4 text-sm text-muted-foreground">
-        Admin access required.
-      </div>
+      <DialogContentCard className="min-h-0 flex-1" bodyClassName="flex min-h-0 flex-1 flex-col">
+        <div className="text-sm text-muted-foreground">Admin access required.</div>
+      </DialogContentCard>
     );
   }
 
@@ -248,33 +248,42 @@ export function UserManagementSettingsPanel() {
 
   return (
     <>
-      <Card className="border-0 bg-card shadow-none">
-        <CardContent className="pt-0">
-          {listError ? (
-            <p className="mb-3 text-sm text-destructive">{listError}</p>
-          ) : null}
-          <div className="rounded-md border border-border">
+      <DialogContentCard
+        className="min-h-0 flex-1"
+        bodyClassName="flex min-h-0 flex-1 flex-col"
+        footer={
+          <DialogCardFooter>
+            <Button onClick={() => setCreate({ ...initialCreate, open: true })}>
+              New user
+            </Button>
+          </DialogCardFooter>
+        }
+      >
+        {listError ? (
+          <p className="mb-3 text-sm text-destructive">{listError}</p>
+        ) : null}
+        <div className="min-h-0 flex-1 overflow-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50">
-                  <TableHead>Username</TableHead>
-                  <TableHead>Password</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Write access</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="w-12 text-right">Actions</TableHead>
+                  <TableHead className="text-xs">Username</TableHead>
+                  <TableHead className="text-xs">Password</TableHead>
+                  <TableHead className="text-xs">Role</TableHead>
+                  <TableHead className="text-xs">Write access</TableHead>
+                  <TableHead className="text-xs">Created</TableHead>
+                  <TableHead className="w-12 text-right text-xs">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
                       Loading users…
                     </TableCell>
                   </TableRow>
                 ) : users.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
                       No users yet.
                     </TableCell>
                   </TableRow>
@@ -353,7 +362,7 @@ export function UserManagementSettingsPanel() {
                             ) : null}
                           </div>
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
+                        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                           {formatDate(user.created_at)}
                         </TableCell>
                         <TableCell className="text-right">
@@ -383,13 +392,7 @@ export function UserManagementSettingsPanel() {
               </TableBody>
             </Table>
           </div>
-          <div className="mt-4 flex justify-end">
-            <Button onClick={() => setCreate({ ...initialCreate, open: true })}>
-              New user
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      </DialogContentCard>
 
       <Dialog
         open={create.open}
